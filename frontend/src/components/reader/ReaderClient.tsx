@@ -71,45 +71,72 @@ export function ReaderClient({
   const chapterLabel = chapter.title || `Chapter ${chapter.index + 1}`;
 
   // -- Selection tracking ------------------------------------------------
+  // Only show the menu after the drag ends (mouseup). Reading the selection
+  // during selectionchange (which fires on every mouse move) and calling
+  // setSel each time causes React re-renders mid-drag, which flickers and
+  // resets the browser's selection anchor to the chapter start.
 
   useEffect(() => {
-    const onSelectionChange = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || !mainRef.current) {
-        setSel(null);
-        return;
-      }
-      const text = sel.toString().trim();
-      if (!text) {
-        setSel(null);
-        return;
-      }
-      // Only arm the menu when the selection originates in the chapter.
-      if (!mainRef.current.contains(sel.anchorNode)) {
-        return;
-      }
-      const range = sel.getRangeAt(0);
+    // After the menu appears, the very next pointerdown is still part of the
+    // same drag-release gesture. Skip it so we don't immediately dismiss.
+    let skipNextPointerDown = false;
+
+    const onUp = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest(".sel-menu")) return;
+      const s = window.getSelection();
+      if (!s || s.isCollapsed || !mainRef.current) return;
+      const text = s.toString().trim();
+      if (!text) return;
+      if (
+        !mainRef.current.contains(s.anchorNode) ||
+        !mainRef.current.contains(s.focusNode)
+      ) return;
+      const range = s.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return;
-      setSel({
-        x: rect.left + rect.width / 2,
-        y: rect.top,
-        text,
-      });
+      setSel({ x: rect.left + rect.width / 2, y: rect.top, text });
+      skipNextPointerDown = true;
     };
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, []);
 
-  // Dismiss the selection menu on plain clicks.
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
+    // Dismiss on the next independent pointerdown outside the menu.
+    const onPointerDown = (e: PointerEvent) => {
+      if (skipNextPointerDown) { skipNextPointerDown = false; return; }
       const t = e.target as HTMLElement;
       if (t.closest(".sel-menu")) return;
       setSel(null);
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+
+    // Keyboard selection (shift+arrows, ctrl+a, etc.) — show menu on idle selectionchange.
+    let isPointerDown = false;
+    const onPointerDownTrack = () => { isPointerDown = true; };
+    const onPointerUp = () => { isPointerDown = false; };
+    const onSelectionChange = () => {
+      if (isPointerDown) return;
+      const s = window.getSelection();
+      if (!s || s.isCollapsed) { setSel(null); return; }
+      // reuse onUp logic via a synthetic call
+      const text = s.toString().trim();
+      if (!text || !mainRef.current) { setSel(null); return; }
+      if (!mainRef.current.contains(s.anchorNode) || !mainRef.current.contains(s.focusNode)) { setSel(null); return; }
+      const range = s.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+      setSel({ x: rect.left + rect.width / 2, y: rect.top, text });
+    };
+
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("pointerdown", onPointerDownTrack);
+    document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("pointerdown", onPointerDownTrack);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("selectionchange", onSelectionChange);
+    };
   }, []);
 
   const onSelectionAction = useCallback((id: SelectionAction) => {
