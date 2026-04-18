@@ -1,117 +1,199 @@
 /**
- * Library — the home page. Server Component: fetches the list of ingested
- * books from FastAPI directly (no client round-trip), renders as SSR.
+ * Library — home page.
  *
- * LATER: real book covers (the design shows color-blocked covers with the
- * author/title typeset on them — for now we render a flat paper card).
- * LATER: "Continue reading" vs "On your shelf" split, "Add book" button.
+ * Server Component: fetches the list of ingested books from FastAPI and
+ * renders with SSR. Layout ports LibraryView from glosse-design/src/drawers.jsx:
+ *
+ *   - Header: "Library" + book count + "Add book" + close-X
+ *   - "Continue reading" row of large covers (books with 0 < progress < total-1)
+ *   - "On your shelf" grid of small covers (unread + fully read)
+ *
+ * LATER: real cover images (ingest doesn't extract them yet).
+ * LATER: "Add book" opens an upload flow (no UI for ingesting via browser).
  */
 
 import Link from "next/link";
-import { api } from "@/lib/api";
 
-export const dynamic = "force-dynamic"; // progress updates whenever we read
+import { BookCover } from "@/components/library/BookCover";
+import { Icon } from "@/components/Icons";
+import { api, type BookSummary } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
+
+type BookWithProgress = BookSummary & { pct: number; inProgress: boolean; finished: boolean };
 
 export default async function LibraryPage() {
-  const { books } = await api.library();
+  const { books: rawBooks } = await api.library();
+  const books = rawBooks.map(decorate);
+  const reading = books.filter((b) => b.inProgress);
+  const shelf = books.filter((b) => !b.inProgress);
 
   return (
-    <main className="mx-auto max-w-5xl px-8 py-16">
-      <header className="mb-12">
-        <h1
-          className="text-5xl font-medium tracking-tight"
-          style={{ fontFamily: "var(--font-serif)", color: "var(--color-ink)" }}
-        >
-          glosse
-        </h1>
-        <p
-          className="mt-2 text-sm"
-          style={{
-            fontFamily: "var(--font-sans)",
-            color: "var(--color-ink-muted)",
-          }}
-        >
-          AI that helps you think while you read.
-        </p>
-      </header>
+    <div
+      className="min-h-screen"
+      style={{ background: "var(--paper)", color: "var(--ink)" }}
+    >
+      <LibraryHeader total={books.length} reading={reading.length} />
 
       {books.length === 0 ? (
         <EmptyState />
       ) : (
-        <section>
-          <h2
-            className="mb-4 text-xs font-semibold uppercase tracking-widest"
-            style={{
-              fontFamily: "var(--font-sans)",
-              color: "var(--color-ink-muted)",
-            }}
-          >
-            Your library
-          </h2>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {books.map((b) => (
-              <BookCard key={b.id} book={b} />
-            ))}
-          </div>
-        </section>
+        <div className="mx-auto max-w-[1200px] px-10 pb-20 pt-9">
+          {reading.length > 0 && (
+            <>
+              <SectionLabel>Continue reading</SectionLabel>
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {reading.map((b) => (
+                  <BookTile key={b.id} book={b} size="large" />
+                ))}
+              </div>
+            </>
+          )}
+
+          {shelf.length > 0 && (
+            <>
+              <div className="mt-12">
+                <SectionLabel>On your shelf</SectionLabel>
+              </div>
+              <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 lg:grid-cols-5">
+                {shelf.map((b) => (
+                  <BookTile key={b.id} book={b} size="small" />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       )}
-    </main>
+    </div>
   );
 }
 
-function BookCard({
+// -- Helpers --------------------------------------------------------------
+
+function decorate(b: BookSummary): BookWithProgress {
+  const pct = b.chapters > 0 ? (b.progress + 1) / b.chapters : 0;
+  const finished = b.chapters > 0 && b.progress >= b.chapters - 1;
+  // "In progress" = has started AND isn't on the final chapter.
+  const inProgress = b.progress > 0 && !finished;
+  return { ...b, pct, inProgress, finished };
+}
+
+function LibraryHeader({ total, reading }: { total: number; reading: number }) {
+  return (
+    <header
+      className="flex items-center gap-5 border-b px-10 py-6"
+      style={{ borderColor: "var(--rule-soft)" }}
+    >
+      <div className="flex-1">
+        <div
+          className="leading-none"
+          style={{
+            fontFamily: "var(--heading-stack)",
+            fontSize: 32,
+            fontWeight: 500,
+            color: "var(--ink)",
+          }}
+        >
+          Library
+        </div>
+        <div
+          className="mt-1"
+          style={{
+            fontFamily: "var(--inter-stack)",
+            fontSize: 12,
+            color: "var(--ink-muted)",
+          }}
+        >
+          {total} {total === 1 ? "book" : "books"}
+          {reading > 0 ? ` · ${reading} in progress` : ""}
+        </div>
+      </div>
+      {/* LATER: wire /api/ingest endpoint so this opens a file picker. */}
+      <button
+        className="outline-btn"
+        type="button"
+        title="Add book (not wired up yet — run `uv run glosse ingest book.epub` from the shell)"
+      >
+        <Icon.plus size={14} />
+        <span style={{ marginLeft: 6 }}>Add book</span>
+      </button>
+    </header>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="mb-4 font-semibold uppercase"
+      style={{
+        fontFamily: "var(--inter-stack)",
+        fontSize: 10.5,
+        letterSpacing: 1.4,
+        color: "var(--ink-muted)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function BookTile({
   book,
+  size,
 }: {
-  book: {
-    id: string;
-    title: string;
-    authors: string[];
-    chapters: number;
-    progress: number;
-  };
+  book: BookWithProgress;
+  size: "large" | "small";
 }) {
-  const pct = book.chapters > 0 ? ((book.progress + 1) / book.chapters) * 100 : 0;
+  const author = book.authors.join(", ");
   return (
     <Link
       href={`/read/${book.id}`}
-      className="group block rounded-lg p-5 transition-colors"
-      style={{
-        background: "var(--color-panel)",
-        border: "1px solid var(--color-rule-soft)",
-      }}
+      className="group block transition-transform hover:-translate-y-0.5"
     >
-      <div
-        className="mb-2 text-lg font-medium"
-        style={{ fontFamily: "var(--font-serif)", color: "var(--color-ink)" }}
-      >
-        {book.title}
-      </div>
-      <div
-        className="mb-4 text-sm italic"
-        style={{ fontFamily: "var(--font-serif)", color: "var(--color-ink-muted)" }}
-      >
-        {book.authors.join(", ") || "—"}
-      </div>
-      <div
-        className="mb-2 text-xs"
-        style={{
-          fontFamily: "var(--font-mono)",
-          color: "var(--color-ink-muted)",
-        }}
-      >
-        {book.chapters} sections · at section {book.progress + 1}
-      </div>
-      <div
-        className="h-[3px] overflow-hidden rounded-sm"
-        style={{ background: "var(--color-rule)" }}
-      >
+      <BookCover
+        bookId={book.id}
+        title={book.title}
+        author={author}
+        progress={book.pct}
+        size={size}
+        markRead={book.finished}
+      />
+      <div className="mt-3">
         <div
-          className="h-full transition-[width]"
           style={{
-            width: `${pct}%`,
-            background: "var(--color-accent)",
+            fontFamily: "var(--serif-stack)",
+            fontSize: size === "large" ? 17 : 13.5,
+            fontWeight: 500,
+            color: "var(--ink)",
           }}
-        />
+        >
+          {book.title}
+        </div>
+        <div
+          className="italic"
+          style={{
+            fontFamily: "var(--serif-stack)",
+            fontSize: size === "large" ? 13.5 : 11.5,
+            color: "var(--ink-muted)",
+          }}
+        >
+          {author || "—"}
+        </div>
+        {size === "large" && (
+          <div
+            className="mt-1.5"
+            style={{
+              fontFamily: "var(--mono-stack)",
+              fontSize: 10.5,
+              letterSpacing: 0.5,
+              color: "var(--ink-muted)",
+            }}
+          >
+            {book.finished
+              ? "finished"
+              : `${Math.round(book.pct * 100)}% · chapter ${book.progress + 1}`}
+          </div>
+        )}
       </div>
     </Link>
   );
@@ -119,32 +201,38 @@ function BookCard({
 
 function EmptyState() {
   return (
-    <div
-      className="rounded-lg p-8 text-center"
-      style={{ background: "var(--color-panel)", color: "var(--color-ink-soft)" }}
-    >
+    <div className="mx-auto max-w-xl px-10 py-20 text-center">
       <p
-        className="mb-2 text-lg"
-        style={{ fontFamily: "var(--font-serif)" }}
+        className="mb-2"
+        style={{
+          fontFamily: "var(--serif-stack)",
+          fontSize: 22,
+          fontWeight: 500,
+          color: "var(--ink)",
+        }}
       >
         Your library is empty.
       </p>
       <p
-        className="text-sm"
-        style={{ fontFamily: "var(--font-sans)" }}
+        style={{
+          fontFamily: "var(--inter-stack)",
+          fontSize: 14,
+          color: "var(--ink-muted)",
+        }}
       >
-        Ingest an EPUB from the project root:
-        <br />
-        <code
-          className="mt-2 inline-block rounded px-2 py-1"
-          style={{
-            fontFamily: "var(--font-mono)",
-            background: "var(--color-rule-soft)",
-          }}
-        >
-          uv run glosse ingest path/to/book.epub
-        </code>
+        Ingest an EPUB from the shell:
       </p>
+      <code
+        className="mt-3 inline-block rounded px-3 py-1.5"
+        style={{
+          fontFamily: "var(--mono-stack)",
+          fontSize: 13,
+          background: "var(--rule-soft)",
+          color: "var(--ink)",
+        }}
+      >
+        uv run glosse ingest path/to/book.epub
+      </code>
     </div>
   );
 }
