@@ -45,6 +45,8 @@ export function AIPanel({
   chapterIndex,
   bookTitle,
   chapterLabel,
+  activeSelection,
+  onClearSelection,
   seed,
   seedPayload,
   onSeedConsumed,
@@ -54,6 +56,8 @@ export function AIPanel({
   chapterIndex: number;
   bookTitle: string;
   chapterLabel: string;
+  activeSelection?: string | null;
+  onClearSelection?: () => void;
   seed: AISeed;
   seedPayload?: string | null;
   onSeedConsumed: () => void;
@@ -72,6 +76,7 @@ export function AIPanel({
   const [messages, setMessages] = useState<Msg[]>([
     { from: "ai", kind: "welcome", text: welcomeText },
   ]);
+  const selectionContext = activeSelection?.trim() || null;
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -102,7 +107,7 @@ export function AIPanel({
           mode: pedagogy,
           action: req.action,
           user_message: req.user_message ?? null,
-          selection: req.selection ?? null,
+          selection: req.selection ?? selectionContext ?? null,
         };
         const res = await api.guide(payload);
         setMessages((m) => [
@@ -124,7 +129,7 @@ export function AIPanel({
         setLoading(false);
       }
     },
-    [bookId, chapterIndex, pedagogy],
+    [bookId, chapterIndex, pedagogy, selectionContext],
   );
 
   const handleQuickAction = useCallback(
@@ -236,7 +241,9 @@ export function AIPanel({
             onChange={setInput}
             onSend={onSubmitInput}
             disabled={loading}
-            contextLabel={chapterLabel}
+            contextLabel={selectionContext ? "selected passage" : chapterLabel}
+            selectionPreview={selectionContext}
+            onClearSelection={onClearSelection}
             bookTitle={bookTitle}
           />
         </>

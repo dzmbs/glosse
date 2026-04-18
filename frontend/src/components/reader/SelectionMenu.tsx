@@ -31,12 +31,7 @@ export function SelectionMenu({
   onAction: (id: SelectionAction) => void;
 }) {
   return (
-    <div
-      className="sel-menu"
-      style={{ left: x, top: y }}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={(e) => e.stopPropagation()}
-    >
+    <div className="sel-menu" style={{ left: x, top: y }}>
       {ITEMS.map((a, i) => {
         const I = Icon[a.icon];
         return (
@@ -45,7 +40,11 @@ export function SelectionMenu({
             <button
               type="button"
               className="sel-btn"
-              onClick={() => onAction(a.id)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAction(a.id);
+              }}
               title={a.later ? `${a.label} (LATER)` : a.label}
               style={a.later ? { opacity: 0.55 } : undefined}
             >

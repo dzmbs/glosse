@@ -10,6 +10,8 @@ export function AIComposer({
   onSend,
   disabled,
   contextLabel,
+  selectionPreview,
+  onClearSelection,
   bookTitle,
 }: {
   value: string;
@@ -17,6 +19,8 @@ export function AIComposer({
   onSend: () => void;
   disabled?: boolean;
   contextLabel: string;
+  selectionPreview?: string | null;
+  onClearSelection?: () => void;
   bookTitle: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -30,6 +34,69 @@ export function AIComposer({
         background: "var(--panel-bg)",
       }}
     >
+      {selectionPreview && (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: "10px 12px",
+            borderRadius: 12,
+            background: "rgba(255,255,255,0.45)",
+            border: "1px solid var(--rule-soft)",
+            position: "relative",
+          }}
+        >
+          <div
+            className="flex items-start justify-between gap-2"
+            style={{ marginBottom: 4 }}
+          >
+            <div
+              className="uppercase"
+              style={{
+                fontFamily: "var(--inter-stack)",
+                fontSize: 10,
+                letterSpacing: 1.2,
+                color: "var(--accent)",
+                fontWeight: 600,
+              }}
+            >
+              Using selected passage
+            </div>
+            {onClearSelection && (
+              <button
+                type="button"
+                onClick={onClearSelection}
+                title="Remove selection from context"
+                className="flex items-center justify-center"
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 6,
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--ink-muted)",
+                  cursor: "pointer",
+                  padding: 0,
+                  marginTop: -2,
+                  marginRight: -4,
+                }}
+              >
+                <Icon.close size={12} />
+              </button>
+            )}
+          </div>
+          <div
+            className="line-clamp-2"
+            style={{
+              fontFamily: "var(--serif-stack)",
+              fontSize: 13.5,
+              lineHeight: 1.45,
+              color: "var(--ink-soft)",
+            }}
+          >
+            “{selectionPreview}”
+          </div>
+        </div>
+      )}
       <div
         className="flex items-end gap-[10px]"
         style={{
