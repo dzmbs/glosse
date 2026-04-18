@@ -27,15 +27,20 @@ def _get_client():
 
 
 def _embed_batch(client, texts: List[str], batch_idx: int) -> List[List[float]]:
+    from openai import APIConnectionError, APIError, RateLimitError
+
     for attempt in range(_MAX_ATTEMPTS):
         try:
             resp = client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
             return [item.embedding for item in resp.data]
-        except Exception as exc:
+        except (RateLimitError, APIError, APIConnectionError) as exc:
             status = getattr(exc, "status_code", None)
-            retriable = (
-                type(exc).__name__ in ("RateLimitError",)
-                or status in (429, 500, 502, 503, 504)
+            retriable = isinstance(exc, (RateLimitError, APIConnectionError)) or status in (
+                429,
+                500,
+                502,
+                503,
+                504,
             )
             if retriable and attempt < _MAX_ATTEMPTS - 1:
                 delay = 2 ** attempt

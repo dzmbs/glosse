@@ -203,8 +203,11 @@ def run_guide(req: GuideRequest) -> GuideResponse:
                     + context_block
                 )
                 citations = safe_chunks
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to prefetch safe chunks for OpenRouter fallback; continuing without inlined context: %s",
+                exc,
+            )
 
         text, used_tools, extra_citations = _run_loop(
             client, model, messages, tools, req.book_id, req.chapter_index

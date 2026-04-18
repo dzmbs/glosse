@@ -71,8 +71,6 @@ def chunk_book(book: Book, book_id: str) -> List[Chunk]:
 
             if end >= len(text):
                 break
-            pos = end - OVERLAP_CHARS
-            if pos < 0:
-                pos = 0
+            pos = max(0, end - OVERLAP_CHARS)
 
     return chunks
