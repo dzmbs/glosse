@@ -418,7 +418,7 @@ export function ReaderClient({
           </div>
         )}
 
-        {sel && <SelectionMenu x={sel.x} y={sel.y} onAction={onSelectionAction} />}
+        {/* {sel && <SelectionMenu x={sel.x} y={sel.y} onAction={onSelectionAction} />} */}
       </div>
 
       <ReaderBottomBar
