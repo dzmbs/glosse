@@ -62,8 +62,21 @@ def save_book(book: Book, book_id: str) -> str:
     with open(path, "wb") as f:
         pickle.dump(book, f)
 
-    # Small JSON companion for humans / debug tools.
+    # Small JSON companion for humans / debug tools. Preserves any extra
+    # keys the caller previously wrote (e.g. default_surface set via the
+    # upload endpoint) — we only overwrite the fields derived from the
+    # pickled Book itself.
+    d_meta_path = os.path.join(d, "meta.json")
+    existing: dict = {}
+    if os.path.exists(d_meta_path):
+        try:
+            with open(d_meta_path) as f:
+                existing = json.load(f)
+        except json.JSONDecodeError:
+            existing = {}
+
     meta = {
+        **existing,
         "book_id": book_id,
         "title": book.metadata.title,
         "authors": book.metadata.authors,
@@ -71,9 +84,32 @@ def save_book(book: Book, book_id: str) -> str:
         "source_file": book.source_file,
         "processed_at": book.processed_at,
     }
-    with open(os.path.join(d, "meta.json"), "w") as f:
+    with open(d_meta_path, "w") as f:
         json.dump(meta, f, indent=2)
     return path
+
+
+def read_meta(book_id: str) -> dict:
+    """Return the meta.json dict for a book, or {} if absent/invalid."""
+    path = os.path.join(book_dir(book_id), "meta.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def update_meta(book_id: str, patch: dict) -> dict:
+    """Merge `patch` into the book's meta.json and return the new dict."""
+    d = ensure_book_dir(book_id)
+    current = read_meta(book_id)
+    current.update(patch)
+    with open(os.path.join(d, "meta.json"), "w") as f:
+        json.dump(current, f, indent=2)
+    return current
 
 
 @lru_cache(maxsize=16)

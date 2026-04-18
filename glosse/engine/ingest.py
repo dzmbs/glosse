@@ -142,21 +142,35 @@ def ingest(epub_path: str, book_dir: str) -> Book:
         shutil.rmtree(images_dir)
     os.makedirs(images_dir, exist_ok=True)
 
-    # Extract images and build a rewrite map
+    # Extract images and build a rewrite map.
+    #
+    # We grab ITEM_IMAGE (raster), ITEM_COVER (the publisher's cover — a
+    # separate ebooklib type; without this the first spine page in many
+    # books is just a broken <img>), and ITEM_VECTOR (SVGs that an <img
+    # src> might point at). Leaving ITEM_COVER out was the bug behind
+    # the broken Rust Atomics cover page.
     print("[ingest] extracting images")
     image_map: dict = {}
+    _IMAGE_TYPES = {
+        ebooklib.ITEM_IMAGE,
+        ebooklib.ITEM_COVER,
+        ebooklib.ITEM_VECTOR,
+    }
     for item in book_obj.get_items():
-        if item.get_type() == ebooklib.ITEM_IMAGE:
-            original_fname = os.path.basename(item.get_name())
-            safe_fname = "".join(
-                c for c in original_fname if c.isalnum() or c in "._-"
-            ).strip()
-            local_path = os.path.join(images_dir, safe_fname)
-            with open(local_path, "wb") as f:
-                f.write(item.get_content())
-            rel = f"images/{safe_fname}"
-            image_map[item.get_name()] = rel
-            image_map[original_fname] = rel
+        if item.get_type() not in _IMAGE_TYPES:
+            continue
+        original_fname = os.path.basename(item.get_name())
+        safe_fname = "".join(
+            c for c in original_fname if c.isalnum() or c in "._-"
+        ).strip()
+        if not safe_fname:
+            continue
+        local_path = os.path.join(images_dir, safe_fname)
+        with open(local_path, "wb") as f:
+            f.write(item.get_content())
+        rel = f"images/{safe_fname}"
+        image_map[item.get_name()] = rel
+        image_map[original_fname] = rel
 
     # TOC
     print("[ingest] parsing TOC")

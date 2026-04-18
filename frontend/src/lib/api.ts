@@ -10,6 +10,8 @@
  * routes change, update the types here in the same commit.
  */
 
+export type SurfaceId = "novel" | "study" | "article" | "focus";
+
 export type BookSummary = {
   id: string;
   title: string;
@@ -21,6 +23,9 @@ export type BookSummary = {
   /** True when the source EPUB is still sitting in `data/inbox/`
    *  (picked up on server boot via scan_and_ingest_inbox). */
   in_inbox?: boolean;
+  /** Surface mode chosen at upload — applied to the reader when the
+   *  user opens this book. Null when unknown (older books). */
+  default_surface?: SurfaceId | null;
 };
 
 export type LibraryResponse = {
@@ -51,6 +56,15 @@ export type BookDetail = {
   spine: SpineItem[];
   toc: TOCNode[];
   progress: number;
+  default_surface?: SurfaceId | null;
+};
+
+export type UploadResponse = {
+  id: string;
+  title: string;
+  authors: string[];
+  chapters: number;
+  default_surface: SurfaceId;
 };
 
 export type Chapter = {
@@ -145,4 +159,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ book_id: bookId, chapter_index: chapterIndex }),
     }),
+  uploadBook: async (file: File, surface: SurfaceId): Promise<UploadResponse> => {
+    // Multipart — must NOT set Content-Type ourselves (the browser needs
+    // to add the boundary). `req` sets a JSON content-type; bypass it.
+    const base = typeof window === "undefined"
+      ? process.env.INTERNAL_API_BASE ?? "http://127.0.0.1:8123"
+      : "";
+    const form = new FormData();
+    form.append("file", file);
+    form.append("surface", surface);
+    const res = await fetch(`${base}/api/library/upload`, {
+      method: "POST",
+      body: form,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`[glosse api] POST /api/library/upload → ${res.status}: ${body}`);
+    }
+    return (await res.json()) as UploadResponse;
+  },
 };

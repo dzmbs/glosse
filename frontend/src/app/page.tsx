@@ -2,20 +2,19 @@
  * Library — home page.
  *
  * Server Component: fetches the list of ingested books from FastAPI and
- * renders with SSR. Layout ports LibraryView from glosse-design/src/drawers.jsx:
+ * renders with SSR. The "Add book" button is a client component
+ * (LibraryActions) so it can open the upload dialog without forcing this
+ * whole page into a client boundary.
  *
- *   - Header: "Library" + book count + "Add book" + close-X
- *   - "Continue reading" row of large covers (books with 0 < progress < total-1)
- *   - "On your shelf" grid of small covers (unread + fully read)
- *
- * LATER: real cover images (ingest doesn't extract them yet).
- * LATER: "Add book" opens an upload flow (no UI for ingesting via browser).
+ * Clicking a book links directly to its first section (/read/{id}/0).
+ * Resume-at-progress is an explicit choice made elsewhere; the library
+ * is the "start over" entry point.
  */
 
 import Link from "next/link";
 
+import { LibraryActions } from "@/components/library/LibraryActions";
 import { BookCover } from "@/components/library/BookCover";
-import { Icon } from "@/components/Icons";
 import { api, type BookSummary } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -73,7 +72,6 @@ export default async function LibraryPage() {
 function decorate(b: BookSummary): BookWithProgress {
   const pct = b.chapters > 0 ? (b.progress + 1) / b.chapters : 0;
   const finished = b.chapters > 0 && b.progress >= b.chapters - 1;
-  // "In progress" = has started AND isn't on the final chapter.
   const inProgress = b.progress > 0 && !finished;
   return { ...b, pct, inProgress, finished };
 }
@@ -108,15 +106,7 @@ function LibraryHeader({ total, reading }: { total: number; reading: number }) {
           {reading > 0 ? ` · ${reading} in progress` : ""}
         </div>
       </div>
-      {/* LATER: wire /api/ingest endpoint so this opens a file picker. */}
-      <button
-        className="outline-btn"
-        type="button"
-        title="Add book (not wired up yet — run `uv run glosse ingest book.epub` from the shell)"
-      >
-        <Icon.plus size={14} />
-        <span style={{ marginLeft: 6 }}>Add book</span>
-      </button>
+      <LibraryActions />
     </header>
   );
 }
@@ -145,9 +135,13 @@ function BookTile({
   size: "large" | "small";
 }) {
   const author = book.authors.join(", ");
+  // Library clicks always start at section 0. Resume-to-last-read is a
+  // separate affordance (the top bar's book title, a bookmark, etc.) —
+  // the library is the "start fresh" entry point.
+  const href = `/read/${book.id}/0`;
   return (
     <Link
-      href={`/read/${book.id}`}
+      href={href}
       className="group block transition-transform hover:-translate-y-0.5"
     >
       <BookCover
@@ -191,7 +185,7 @@ function BookTile({
             >
               {book.finished
                 ? "finished"
-                : `${Math.round(book.pct * 100)}% · chapter ${book.progress + 1}`}
+                : `${Math.round(book.pct * 100)}% · section ${book.progress + 1}`}
             </span>
             <IndexBadge book={book} />
           </div>
@@ -272,19 +266,16 @@ function EmptyState() {
           color: "var(--ink-muted)",
         }}
       >
-        Ingest an EPUB from the shell:
+        Click <span className="font-semibold">Add book</span> above to upload an
+        EPUB, or drop one into <code
+          className="mx-1 rounded px-1.5 py-0.5"
+          style={{
+            fontFamily: "var(--mono-stack)",
+            fontSize: 12,
+            background: "var(--rule-soft)",
+          }}
+        >data/inbox/</code> and restart the server.
       </p>
-      <code
-        className="mt-3 inline-block rounded px-3 py-1.5"
-        style={{
-          fontFamily: "var(--mono-stack)",
-          fontSize: 13,
-          background: "var(--rule-soft)",
-          color: "var(--ink)",
-        }}
-      >
-        uv run glosse ingest path/to/book.epub
-      </code>
     </div>
   );
 }
