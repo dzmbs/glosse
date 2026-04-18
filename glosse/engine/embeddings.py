@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 def _get_client():
+    import os
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise NotImplementedError("OPENAI_API_KEY not set")
     from openai import OpenAI
     return OpenAI()
 

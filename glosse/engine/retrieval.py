@@ -50,11 +50,15 @@ def _cosine(a: List[float], b: List[float]) -> float:
 
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
-
+_STOP_WORDS = {"what", "is", "the", "a", "an", "to", "of", "in", "for", "on", "with", "as", "by", "at", "and", "or", "how", "why", "who", "where", "when", "does", "did", "do", "are", "was", "were", "it", "this", "that", "these", "those", "be", "can", "could", "would", "should"}
 
 def _lexical_score(query: str, text: str) -> float:
     """Crude overlap score used only when embeddings are unavailable."""
     q_terms = set(_WORD_RE.findall(query.lower()))
+    meaningful_q_terms = q_terms - _STOP_WORDS
+    if meaningful_q_terms:
+        q_terms = meaningful_q_terms
+
     if not q_terms:
         return 0.0
     t_terms = _WORD_RE.findall(text.lower())
