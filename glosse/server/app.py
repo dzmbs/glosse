@@ -1,24 +1,45 @@
 """
-FastAPI app entry point.
+FastAPI app entry point — pure JSON API.
 
 Run with:
     uv run glosse serve
     # or
     uv run uvicorn glosse.server.app:app --port 8123 --reload
+
+Frontend (Next.js) runs on :3000 and proxies /api/* to this service via a
+`next.config.ts` rewrite. CORS is permissive in dev so the frontend can
+also hit the API directly during tests.
 """
 
 from __future__ import annotations
 
-import os
-
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 from glosse.server.routes import router
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_STATIC_DIR = os.path.join(_REPO_ROOT, "web", "static")
-
 app = FastAPI(title="glosse", version="0.1.0")
+
+# Dev CORS. Tighten this when we ship.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(router)
-app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+@app.get("/")
+async def root():
+    return {
+        "name": "glosse",
+        "version": "0.1.0",
+        "frontend": "http://localhost:3000 (run `pnpm dev` in frontend/)",
+        "docs": "/docs",
+    }
