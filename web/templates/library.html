@@ -12,7 +12,7 @@
         <div class="tagline">AI that helps you think while you read.</div>
 
         {% if not books %}
-            <p>No books yet. Ingest one with <code>uv run glosse ingest path/to/book.epub</code>.</p>
+            <p>No books yet. Drop EPUBs into <code>data/inbox/</code> and restart the server, or run <code>uv run glosse ingest path/to/book.epub</code>.</p>
         {% endif %}
 
         <div class="book-grid">
@@ -22,6 +22,16 @@
                 <div class="book-meta">
                     {{ book.author or "—" }}<br>
                     {{ book.chapters }} sections · at section {{ book.progress + 1 }}
+                </div>
+                <div class="book-badges">
+                    {% if book.has_chunks %}
+                        <span class="badge badge--indexed">AI ready</span>
+                    {% else %}
+                        <span class="badge badge--plain">not indexed</span>
+                    {% endif %}
+                    {% if book.in_inbox %}
+                        <span class="badge badge--inbox">from inbox</span>
+                    {% endif %}
                 </div>
                 {% if book.chapters %}
                 <div class="progress-bar">

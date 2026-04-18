@@ -60,6 +60,26 @@ body.library .book-meta {
     line-height: 1.5;
 }
 
+body.library .book-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+body.library .badge {
+    font-size: 0.72em;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+body.library .badge--indexed { background: #d1fae5; color: #065f46; }
+body.library .badge--plain   { background: #f3f4f6; color: #6b7280; }
+body.library .badge--inbox   { background: #dbeafe; color: #1e40af; }
+
 body.library .progress-bar {
     height: 4px;
     background: #eee;
