@@ -3,7 +3,5 @@
   "build": {
     "builder": "DOCKERFILE"
   },
-  "deploy": {
-    "startCommand": "sh -c 'uvicorn glosse.server.app:app --host 0.0.0.0 --port ${PORT:-8123}'"
-  }
+  "deploy": {}
 }

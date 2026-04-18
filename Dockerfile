@@ -13,4 +13,4 @@ RUN uv pip install --system .
 
 EXPOSE 8123
 
-CMD uvicorn glosse.server.app:app --host 0.0.0.0 --port ${PORT:-8123}
+CMD ["sh", "-c", "uvicorn glosse.server.app:app --host 0.0.0.0 --port ${PORT:-8123}"]
