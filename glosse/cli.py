@@ -86,7 +86,10 @@ def _cmd_index(args: argparse.Namespace) -> int:
     print(f"  produced {len(chunks)} chunks")
 
     print(f"  embedding with {EMBEDDING_MODEL} (dim={EMBEDDING_DIM})…")
-    chunks = embed_chunks(chunks)
+    try:
+        chunks = embed_chunks(chunks)
+    except NotImplementedError as exc:
+        print(f"  skipping embeddings: {exc}")
 
     path = save_chunks(chunks, book_id)
     print(f"  saved {len(chunks)} chunks → {path}")

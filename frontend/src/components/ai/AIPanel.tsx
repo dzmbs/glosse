@@ -133,7 +133,7 @@ export function AIPanel({
         setPanelMode("quiz");
         return;
       }
-      const action: GuideAction = id === "check" ? "check" : "explain";
+      const action: GuideAction = id === "summarize" ? "summarize" : "explain";
       const label =
         id === "summarize" ? "Summary"
           : id === "characters" ? "Who's who"
