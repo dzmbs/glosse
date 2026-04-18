@@ -237,12 +237,16 @@ export function ReaderClient({
       <ReaderBottomBar
         chapterIndex={chapter.index}
         chaptersTotal={chapter.chapters_total}
-        prevHref={
-          chapter.prev_index !== null ? `/read/${book.id}/${chapter.prev_index}` : null
-        }
-        nextHref={
-          chapter.next_index !== null ? `/read/${book.id}/${chapter.next_index}` : null
-        }
+        canPrev={chapter.prev_index !== null}
+        canNext={chapter.next_index !== null}
+        onPrev={() => {
+          if (chapter.prev_index !== null)
+            router.push(`/read/${book.id}/${chapter.prev_index}`);
+        }}
+        onNext={() => {
+          if (chapter.next_index !== null)
+            router.push(`/read/${book.id}/${chapter.next_index}`);
+        }}
         minutesLeft={minutesLeft}
       />
 
@@ -251,6 +255,10 @@ export function ReaderClient({
         onClose={() => setTocOpen(false)}
         book={book}
         currentIndex={chapter.index}
+        onJump={(idx) => {
+          setTocOpen(false);
+          router.push(`/read/${book.id}/${idx}`);
+        }}
       />
       <HighlightsDrawer
         open={highlightsOpen}

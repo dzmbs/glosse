@@ -14,8 +14,6 @@
  * spine filename). If no match, we skip.
  */
 
-import Link from "next/link";
-
 import { Drawer } from "@/components/drawers/Drawer";
 import { Icon } from "@/components/Icons";
 import type { BookDetail, TOCNode } from "@/lib/api";
@@ -50,11 +48,16 @@ export function TOCDrawer({
   onClose,
   book,
   currentIndex,
+  onJump,
 }: {
   open: boolean;
   onClose: () => void;
   book: BookDetail;
   currentIndex: number;
+  /** Called when the user picks a chapter. The parent (ReaderClient)
+   *  animates the swap with View Transitions — this avoids the full-page
+   *  reload we'd get from an <a href>. */
+  onJump: (spineIndex: number) => void;
 }) {
   // Build href -> spine index once.
   const hrefToSpine = new Map<string, number>();
@@ -80,17 +83,17 @@ export function TOCDrawer({
           const active = e.spineIndex === currentIndex;
           const read = e.spineIndex < currentIndex;
           return (
-            <Link
+            <button
               key={`${e.spineIndex}-${i}`}
-              href={`/read/${book.id}/${e.spineIndex}`}
-              onClick={onClose}
-              className="flex items-start gap-[14px] rounded-[10px] transition-colors"
+              type="button"
+              onClick={() => onJump(e.spineIndex)}
+              className="flex items-start gap-[14px] rounded-[10px] transition-colors w-full text-left cursor-pointer"
               style={{
-                width: "100%",
                 padding: "12px 14px",
                 paddingLeft: 14 + e.depth * 16,
                 background: active ? "rgba(184,74,43,0.08)" : "transparent",
                 color: "var(--ink)",
+                border: "none",
                 textDecoration: "none",
               }}
               onMouseEnter={(ev) => {
@@ -164,7 +167,7 @@ export function TOCDrawer({
               >
                 ch. {e.spineIndex + 1}
               </div>
-            </Link>
+            </button>
           );
         })}
       </div>

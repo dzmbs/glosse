@@ -51,10 +51,13 @@
   --heading-stack: var(--serif-stack);
 
   --body-size: 20px;
-  --line-height: 1.6;
+  --line-height: 1.65;
   --text-indent: 1.4em;
   --text-align: justify;
-  --page-pad: 96px;
+  /* Horizontal padding inside the reading column. A bit more generous
+   * than the design's 96px default — we don't have a two-page spread
+   * eating center space, so we don't need huge outer gutters. */
+  --page-pad: 72px;
 }
 
 /* -- Surface modes --------------------------------------------------- */
@@ -223,6 +226,16 @@ html, body {
   transition: background 0.15s, color 0.15s;
 }
 .icon-btn:hover { background: rgba(127, 127, 127, 0.1); color: var(--ink); }
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+  color: var(--ink-soft);
+}
+.icon-btn:disabled:hover {
+  background: transparent;
+  color: var(--ink-soft);
+}
 
 .ai-btn {
   display: inline-flex;
@@ -373,6 +386,57 @@ html, body {
   border-radius: 0 6px 6px 0;
 }
 .margin-note:hover { background: rgba(127, 127, 127, 0.09); }
+
+/* -- Chapter transitions (View Transitions API) -----------------------
+ *
+ * ReaderClient sets `documentElement.dataset.readerDirection` to
+ * "forward" or "back" right before calling document.startViewTransition().
+ * The browser snapshots the current chapter as the "old" image and the
+ * new chapter as the "new" image; these rules slide them in the right
+ * direction.
+ *
+ * Gracefully degrades — in browsers without View Transitions, ReaderClient
+ * just swaps state and no animation plays. */
+
+::view-transition-old(chapter),
+::view-transition-new(chapter) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0.24, 1);
+  animation-fill-mode: both;
+}
+
+/* Forward: old page slides left off-screen, new page slides in from the right. */
+html[data-reader-direction="forward"]::view-transition-old(chapter) {
+  animation-name: slideOutLeft;
+}
+html[data-reader-direction="forward"]::view-transition-new(chapter) {
+  animation-name: slideInFromRight;
+}
+
+/* Back: reverse. */
+html[data-reader-direction="back"]::view-transition-old(chapter) {
+  animation-name: slideOutRight;
+}
+html[data-reader-direction="back"]::view-transition-new(chapter) {
+  animation-name: slideInFromLeft;
+}
+
+@keyframes slideOutLeft {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(-8%); opacity: 0; }
+}
+@keyframes slideInFromRight {
+  from { transform: translateX(8%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideOutRight {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(8%); opacity: 0; }
+}
+@keyframes slideInFromLeft {
+  from { transform: translateX(-8%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
 
 /* -- Keyframes -------------------------------------------------------- */
 @keyframes tweakIn {

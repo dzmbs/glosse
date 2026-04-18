@@ -3,10 +3,11 @@
 /**
  * ReaderBottomBar — ports ReaderBottomBar from glosse-design/src/reader.jsx.
  *
- *   p.X / Y    [<]  [----||------------------]  [>]    N min left in chapter
+ *   ch. X / Y    [<]  [----||------------------]  [>]    N min left in chapter
  *
- * The design uses pages. We have chapters, and estimate reading time from
- * the chapter's word count assuming 240 wpm.
+ * Prev/next are buttons — the parent owns the chapter state and animates the
+ * swap client-side. We no longer use `<a href>` here because full-page
+ * navigation would kill the View Transitions animation.
  */
 
 import { Icon } from "@/components/Icons";
@@ -14,18 +15,18 @@ import { Icon } from "@/components/Icons";
 export function ReaderBottomBar({
   chapterIndex,
   chaptersTotal,
-  prevHref,
-  nextHref,
+  canPrev,
+  canNext,
   onPrev,
   onNext,
   minutesLeft,
 }: {
   chapterIndex: number;
   chaptersTotal: number;
-  prevHref: string | null;
-  nextHref: string | null;
-  onPrev?: () => void;
-  onNext?: () => void;
+  canPrev: boolean;
+  canNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
   minutesLeft: number | null;
 }) {
   const pct = Math.min(1, Math.max(0, (chapterIndex + 1) / chaptersTotal));
@@ -56,16 +57,12 @@ export function ReaderBottomBar({
       </div>
 
       <div className="flex-1 flex items-center gap-[14px]">
-        <NavBtn href={prevHref} onClick={onPrev} ariaLabel="Previous chapter">
+        <NavBtn disabled={!canPrev} onClick={onPrev} ariaLabel="Previous chapter">
           <Icon.chevL />
         </NavBtn>
         <div
           className="flex-1 relative"
-          style={{
-            height: 2,
-            background: "var(--rule)",
-            borderRadius: 2,
-          }}
+          style={{ height: 2, background: "var(--rule)", borderRadius: 2 }}
         >
           <div
             className="absolute left-0 top-0 bottom-0 rounded-[2px]"
@@ -85,7 +82,7 @@ export function ReaderBottomBar({
             />
           ))}
         </div>
-        <NavBtn href={nextHref} onClick={onNext} ariaLabel="Next chapter">
+        <NavBtn disabled={!canNext} onClick={onNext} ariaLabel="Next chapter">
           <Icon.chevR />
         </NavBtn>
       </div>
@@ -107,27 +104,26 @@ export function ReaderBottomBar({
 }
 
 function NavBtn({
-  href,
+  disabled,
   onClick,
   ariaLabel,
   children,
 }: {
-  href: string | null;
-  onClick?: () => void;
+  disabled: boolean;
+  onClick: () => void;
   ariaLabel: string;
   children: React.ReactNode;
 }) {
-  if (!href) {
-    return (
-      <span className="icon-btn opacity-40" aria-disabled="true" aria-label={ariaLabel}>
-        {children}
-      </span>
-    );
-  }
-  // Use anchor for prefetching; onClick lets the parent bump local state.
   return (
-    <a className="icon-btn" href={href} onClick={onClick} aria-label={ariaLabel}>
+    <button
+      type="button"
+      className="icon-btn"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={ariaLabel}
+      style={disabled ? { opacity: 0.4, cursor: "default" } : undefined}
+    >
       {children}
-    </a>
+    </button>
   );
 }

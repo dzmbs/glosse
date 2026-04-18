@@ -33,14 +33,20 @@ export function BookPage({
   mode,
 }: Props) {
   return (
-    <div className="flex-1 min-w-0 overflow-auto" style={{ background: "var(--paper)" }}>
+    <div
+      className="flex-1 min-w-0 overflow-auto reader-scroll"
+      style={{ background: "var(--paper)" }}
+    >
       <div
-        className="mx-auto"
+        className="mx-auto reader-column"
         style={{
           width: "100%",
-          maxWidth: 640,
-          padding: "56px var(--page-pad) 120px",
+          maxWidth: 760,
+          padding: "64px var(--page-pad) 140px",
           boxSizing: "border-box",
+          // Tag for the View Transitions API — lets globals.css slide the
+          // chapter in/out when the parent calls startViewTransition().
+          viewTransitionName: "chapter",
         }}
       >
         {/* Running head — novel/focus */}
