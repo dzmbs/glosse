@@ -2,62 +2,88 @@
 
 Spoiler-aware AI reading companion for EPUBs. See [`description.md`](./description.md) for the pitch.
 
-## Install
+## Stack
 
-Uses [uv](https://docs.astral.sh/uv/).
+- **Backend**: Python + [uv](https://docs.astral.sh/uv/) + FastAPI — pure JSON API on `:8123`.
+- **Frontend**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind v4 — on `:3000`, proxies `/api/*` to the backend.
+- **Data**: ingested EPUBs live under `data/books/<book_id>/` as pickled `Book` objects + image files.
 
-```bash
-uv sync
-```
+## First-time setup
 
-## Usage
-
-Drop an EPUB in the project root (or anywhere), then ingest it:
+Requires `uv`, `pnpm` (or npm), and Node ≥ 20.
 
 ```bash
-uv run glosse ingest path/to/dracula.epub
+make install
+# ≡ uv sync && pnpm --prefix frontend install
 ```
 
-This creates `data/books/<book_id>/book.pkl` and extracts images into
-`data/books/<book_id>/images/`. Run ingest once per book.
+## Daily usage
 
-Then start the reader:
+Ingest an EPUB (once per book):
 
 ```bash
-uv run glosse serve
-# or: uv run uvicorn glosse.server.app:app --port 8123
+make ingest EPUB=path/to/dracula.epub
+# ≡ uv run glosse ingest path/to/dracula.epub
 ```
 
-Open <http://localhost:8123>.
+Run both services:
+
+```bash
+make dev
+# FastAPI on http://localhost:8123  (docs: /docs)
+# Next.js on http://localhost:3000  (the reader)
+```
+
+Or run them individually in separate terminals:
+
+```bash
+make api   # FastAPI only
+make web   # Next.js only
+```
+
+Open <http://localhost:3000>.
 
 ## Layout
 
-- `glosse/engine/` — book intelligence: ingest, chunking, embeddings,
-  spoiler-aware retrieval. **Owned by the engine dev.**
-- `glosse/codex/` — agent orchestration: modes, tools, system prompts.
-  **Owned by the engine dev.**
-- `glosse/server/` — FastAPI app, routes, progress tracking.
-- `web/` — Jinja templates and static assets. **Owned by the frontend work.**
-- `data/books/` — ingested books. Gitignored.
+```
+glosse/
+├── glosse/             # Python package
+│   ├── engine/         # Book intelligence: ingest, chunking, embeddings, retrieval
+│   ├── codex/          # Agent orchestration: modes, tools, system prompts
+│   ├── server/         # FastAPI app + JSON routes
+│   └── cli.py          # `glosse ingest | serve | list`
+├── frontend/           # Next.js 16 app
+│   ├── src/app/        # App Router pages (/, /read/[bookId]/[chapter])
+│   ├── src/components/ # GuidePanel + more to come
+│   └── src/lib/api.ts  # Typed client for the FastAPI backend
+├── data/books/         # Ingested books (gitignored)
+└── Makefile
+```
+
+## Ownership
+
+- `glosse/engine/` + `glosse/codex/` — **engine dev**. The stubs have explicit `NotImplementedError` and contract docstrings.
+- `glosse/server/` — boundary; rarely touched outside of adding new endpoints.
+- `frontend/` — **frontend work**. The design lives in a sibling repo (`glosse-design/`) as React/JSX; port components into `frontend/src/components/`.
 
 ## What's implemented vs stubbed
 
 | Area | Status |
 |---|---|
 | EPUB ingest (reader3 parity) | Implemented |
-| Library + chapter reader UI | Implemented |
-| Reading progress (per book) | Implemented |
-| Guide panel (UI shell) | Implemented |
-| Chunking | **Stub** — see `glosse/engine/chunking.py` |
-| Embeddings | **Stub** — see `glosse/engine/embeddings.py` |
-| Spoiler-aware retrieval | **Stub (filter logic in place)** — see `glosse/engine/retrieval.py` |
-| Codex agent | **Stub** — see `glosse/codex/agent.py` |
-| Mode system prompts | Defined in `glosse/codex/modes.py` |
+| JSON API: library, book, chapter, guide, progress | Implemented |
+| Next.js library + reader shell | **Minimal** — usable, not yet designed |
+| Guide panel round-trip to `/api/guide` | Implemented (returns stub response) |
+| Chunking | **Stub** — `glosse/engine/chunking.py` |
+| Embeddings | **Stub** — `glosse/engine/embeddings.py` |
+| Spoiler-aware retrieval | **Filter done, ranking stubbed** — `glosse/engine/retrieval.py` |
+| Codex agent | **Stub** — `glosse/codex/agent.py` |
+| Mode system prompts | Defined — `glosse/codex/modes.py` |
+| Full design port (4 surface modes, drawers, selection menu, quiz flow, etc.) | **LATER** — see `glosse-design/src/` |
 
 ## Attribution
 
-Built on top of [reader3](https://github.com/karpathy/reader3) by Andrej
-Karpathy (MIT). See [`NOTICE.md`](./NOTICE.md) for details.
+Built on top of [reader3](https://github.com/karpathy/reader3) by Andrej Karpathy (MIT). See [`NOTICE.md`](./NOTICE.md) for details.
 
 ## License
 
