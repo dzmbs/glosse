@@ -36,6 +36,7 @@ export function GuidePanel({
     setLoading(true);
     setError(null);
     try {
+      const selection = window.getSelection()?.toString() || null;
       const res = await api.guide({
         book_id: bookId,
         chapter_index: chapterIndex,
@@ -43,6 +44,7 @@ export function GuidePanel({
         // technical, article→discussion, focus→learning). For now, leave
         // the backend default ("learning").
         action,
+        selection,
         user_message: user_message ?? null,
       });
       setResponse(res);
@@ -216,10 +218,10 @@ function QuickActions({
   disabled: boolean;
 }) {
   const tiles: Array<{ id: GuideAction; label: string; sub: string }> = [
-    { id: "explain", label: "Summarize", sub: "this chapter" },
+    { id: "summarize", label: "Summarize", sub: "this chapter" },
     { id: "quiz", label: "Quiz me", sub: "on what you've read" },
     { id: "explain", label: "Explain", sub: "this page" },
-    { id: "ask", label: "Who's who", sub: "so far" },
+    //{ id: "ask", label: "Who's who", sub: "so far" },
   ];
   return (
     <div className="grid grid-cols-2 gap-2">

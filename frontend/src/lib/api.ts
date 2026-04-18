@@ -68,7 +68,7 @@ export type PedagogyMode =
   | "story"
   | "fast";
 
-export type GuideAction = "explain" | "quiz" | "check" | "ask";
+export type GuideAction = "explain" | "quiz" | "summarize" | "ask";
 
 export type GuideRequest = {
   book_id: string;

@@ -148,7 +148,22 @@ def run_guide(req: GuideRequest) -> GuideResponse:
     from glosse.codex.llm import get_chat_client, get_openrouter_client
 
     mode_spec = MODES[req.mode]
-    user_text = " ".join(filter(None, [req.selection, req.user_message])).strip()
+    parts = []
+    if req.action and req.action != "ask":
+        parts.append(f"[{req.action.upper()}]")
+    if req.selection:
+        parts.append(f"Selected text: \"{req.selection}\"")
+    if req.user_message:
+        parts.append(req.user_message)
+    
+    if not req.selection and not req.user_message and req.action == "explain":
+        parts.append("Please retrieve the current passage and summarize or explain it.")
+    elif not req.selection and not req.user_message and req.action == "quiz":
+        parts.append("Please retrieve the current passage and quiz me on what I've read so far.")
+    elif not req.selection and not req.user_message and req.action == "ask":
+        parts.append("Please retrieve the current passage and answer who's who so far.")
+    
+    user_text = "\n".join(parts).strip()
     if not user_text:
         user_text = req.action
 
@@ -224,7 +239,8 @@ def run_guide(req: GuideRequest) -> GuideResponse:
     # Enforcement check: book-content question with no retrieval tool called.
     retrieval_tools = {"retrieve_safe_chunks", "get_current_passage"}
     if (
-        _looks_like_content_question(user_text)
+        not req.selection
+        and _looks_like_content_question(user_text)
         and not retrieval_tools.intersection(used_tools)
     ):
         logger.warning(
