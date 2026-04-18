@@ -12,7 +12,15 @@ import argparse
 import sys
 
 from glosse.engine.ingest import ingest
-from glosse.engine.storage import ensure_book_dir, list_books, save_book, slugify
+from glosse.engine.storage import (
+    delete_chunks,
+    ensure_book_dir,
+    list_books,
+    load_book,
+    save_book,
+    save_chunks,
+    slugify,
+)
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -59,12 +67,31 @@ def _cmd_list(_: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_index(args: argparse.Namespace) -> int:  # pragma: no cover
-    # Stubbed — the engine dev wires this up once chunking + embeddings land.
-    print(
-        f"[stub] Would chunk + embed book '{args.book_id}'. "
-        f"Implement glosse/engine/chunking.py and glosse/engine/embeddings.py first."
-    )
+def _cmd_index(args: argparse.Namespace) -> int:
+    from glosse.engine.chunking import chunk_book
+    from glosse.engine.embeddings import EMBEDDING_DIM, EMBEDDING_MODEL, embed_chunks
+
+    book_id = args.book_id
+    book = load_book(book_id)
+    if book is None:
+        print(f"Error: book '{book_id}' not found. Run: glosse ingest <file.epub> first.")
+        return 1
+
+    if args.reindex:
+        print(f"  --reindex: removing existing chunks.pkl for '{book_id}'")
+        delete_chunks(book_id)
+
+    print(f"  chunking '{book_id}' ({len(book.spine)} chapters)…")
+    chunks = chunk_book(book, book_id)
+    print(f"  produced {len(chunks)} chunks")
+
+    print(f"  embedding with {EMBEDDING_MODEL} (dim={EMBEDDING_DIM})…")
+    chunks = embed_chunks(chunks)
+
+    path = save_chunks(chunks, book_id)
+    print(f"  saved {len(chunks)} chunks → {path}")
+    print()
+    print(f"  glosse index '{book_id}' complete.")
     return 0
 
 
@@ -89,8 +116,13 @@ def main(argv: list[str] | None = None) -> int:
     p_list = sub.add_parser("list", help="List ingested books")
     p_list.set_defaults(func=_cmd_list)
 
-    p_index = sub.add_parser("index", help="(stub) Chunk + embed a book")
+    p_index = sub.add_parser("index", help="Chunk + embed a book for semantic retrieval")
     p_index.add_argument("book_id")
+    p_index.add_argument(
+        "--reindex",
+        action="store_true",
+        help="Delete existing chunks.pkl before indexing (required on schema change)",
+    )
     p_index.set_defaults(func=_cmd_index)
 
     args = parser.parse_args(argv)

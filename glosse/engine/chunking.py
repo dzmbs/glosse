@@ -1,28 +1,9 @@
 """
 Chunking: ChapterContent.text -> list[Chunk].
 
-This is a stub. The contract is intentionally narrow so the engine dev can
-drop in any chunking strategy (fixed-window, sentence-aware, tiktoken-based,
-etc.) without touching the rest of the pipeline.
-
-Guarantees the rest of the system relies on:
-
-1. Every returned Chunk carries `chapter_index == ChapterContent.order` for
-   the chapter it came from. This is how the spoiler boundary is enforced.
-2. `start_offset` and `end_offset` index into the ORIGINAL
-   `ChapterContent.text` for that chapter, so the server can render a
-   chunk's source passage back to the reader.
-3. `chunk_id` is stable across re-runs given the same Book and parameters.
-   A recommended format is `f"{book_id}:{chapter_index:04d}:{ord:04d}"`.
-
-Suggested first implementation (for the dev):
-
-- Flatten each chapter's text into windows of ~600 tokens with ~80 token
-  overlap. Use `tiktoken` with the model's tokenizer if available, otherwise
-  approximate on whitespace (~4 chars per token).
-- Skip chapters with < 40 words (front matter, copyright pages, etc.).
-- Set `section_path` from the TOC: find the innermost TOC entry whose
-  `file_href` matches the chapter's `href`; fall back to the chapter title.
+Fixed-window strategy: ~600 tokens with ~80 token overlap.
+Token count approximated as len(text) // 4 (no tiktoken dependency required).
+Chapters with fewer than 40 words are skipped (front matter, copyright, etc.).
 """
 
 from __future__ import annotations
@@ -31,13 +12,67 @@ from typing import List
 
 from glosse.engine.models import Book, Chunk
 
+WINDOW_CHARS = 2400   # ~600 tokens at 4 chars/token
+OVERLAP_CHARS = 320   # ~80 tokens
+MIN_WORDS = 40
 
-def chunk_book(book: Book, book_id: str) -> List[Chunk]:  # pragma: no cover
-    """
-    Split every chapter in `book.spine` into Chunks.
 
-    TODO(engine): implement. See module docstring for the contract.
-    """
-    raise NotImplementedError(
-        "chunking.chunk_book is not implemented yet. See glosse/engine/chunking.py."
-    )
+def _toc_section(book: Book, chapter_href: str) -> str:
+    """Return the innermost TOC title whose file_href matches chapter_href."""
+    def _search(entries):
+        for entry in entries:
+            if entry.file_href == chapter_href:
+                return entry.title
+            found = _search(entry.children)
+            if found:
+                return found
+        return None
+
+    return _search(book.toc) or ""
+
+
+def chunk_book(book: Book, book_id: str) -> List[Chunk]:
+    """Split every chapter in book.spine into Chunks."""
+    chunks: List[Chunk] = []
+
+    for chapter in book.spine:
+        text = chapter.text
+        if not text or len(text.split()) < MIN_WORDS:
+            continue
+
+        section = _toc_section(book, chapter.href) or chapter.title
+        ord_counter = 0
+        pos = 0
+
+        while pos < len(text):
+            end = min(pos + WINDOW_CHARS, len(text))
+
+            # Snap end to a word boundary to avoid cutting mid-word.
+            if end < len(text):
+                snap = text.rfind(" ", pos, end)
+                if snap > pos:
+                    end = snap
+
+            chunk_text = text[pos:end].strip()
+            if chunk_text:
+                chunks.append(
+                    Chunk(
+                        chunk_id=f"{book_id}:{chapter.order:04d}:{ord_counter:04d}",
+                        book_id=book_id,
+                        chapter_index=chapter.order,
+                        section_path=section,
+                        start_offset=pos,
+                        end_offset=end,
+                        text=chunk_text,
+                        embedding=None,
+                    )
+                )
+                ord_counter += 1
+
+            if end >= len(text):
+                break
+            pos = end - OVERLAP_CHARS
+            if pos < 0:
+                pos = 0
+
+    return chunks

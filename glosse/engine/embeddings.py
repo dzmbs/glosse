@@ -1,52 +1,69 @@
 """
 Embeddings: Chunk -> Chunk (with embedding populated).
 
-This is a stub. The contract:
-
-1. Input: a list of Chunks with `embedding is None`.
-2. Output: the same list, with `embedding` set to a list of floats of a fixed
-   dimension. Dimension must be consistent across all chunks in a book.
-3. The embedding model is a module-level constant so the query-side code in
-   `retrieval.py` can use the exact same model for the user's question.
-
-Suggested first implementation (for the dev):
-
-- Use OpenAI `text-embedding-3-small` (1536 dims) via the already-installed
-  `openai` client. Read the API key from `OPENAI_API_KEY`.
-- Batch in groups of 128 chunks to stay under rate / size limits.
-- Persist the model name alongside the chunks (add a field to a future
-  BookIndex dataclass) so we refuse to mix embeddings across models.
+Provider: OpenAI text-embedding-3-small (1536 dims).
+Batches in groups of 64 with exponential backoff on 429/5xx.
 """
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import List
 
 from glosse.engine.models import Chunk
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
+BATCH_SIZE = 64
+_MAX_ATTEMPTS = 3
+
+logger = logging.getLogger(__name__)
 
 
-def embed_chunks(chunks: List[Chunk]) -> List[Chunk]:  # pragma: no cover
-    """
-    Populate each chunk's `embedding` field.
-
-    TODO(engine): implement. See module docstring for the contract.
-    """
-    raise NotImplementedError(
-        "embeddings.embed_chunks is not implemented yet. "
-        "See glosse/engine/embeddings.py."
-    )
+def _get_client():
+    from openai import OpenAI
+    return OpenAI()
 
 
-def embed_query(text: str) -> List[float]:  # pragma: no cover
-    """
-    Embed a single user query with the same model used for chunks.
+def _embed_batch(client, texts: List[str], batch_idx: int) -> List[List[float]]:
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            resp = client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
+            return [item.embedding for item in resp.data]
+        except Exception as exc:
+            status = getattr(exc, "status_code", None)
+            retriable = (
+                type(exc).__name__ in ("RateLimitError",)
+                or status in (429, 500, 502, 503, 504)
+            )
+            if retriable and attempt < _MAX_ATTEMPTS - 1:
+                delay = 2 ** attempt
+                logger.warning(
+                    "embed batch %d attempt %d/%d failed (%s) — retrying in %ds",
+                    batch_idx, attempt + 1, _MAX_ATTEMPTS, exc, delay,
+                )
+                time.sleep(delay)
+            else:
+                raise
+    raise RuntimeError("unreachable")
 
-    TODO(engine): implement.
-    """
-    raise NotImplementedError(
-        "embeddings.embed_query is not implemented yet. "
-        "See glosse/engine/embeddings.py."
-    )
+
+def embed_chunks(chunks: List[Chunk]) -> List[Chunk]:
+    """Populate each chunk's embedding field in place and return the list."""
+    client = _get_client()
+    for batch_start in range(0, len(chunks), BATCH_SIZE):
+        batch = chunks[batch_start : batch_start + BATCH_SIZE]
+        batch_idx = batch_start // BATCH_SIZE
+        logger.info("embedding batch %d (%d chunks)", batch_idx, len(batch))
+        vectors = _embed_batch(client, [c.text for c in batch], batch_idx)
+        for chunk, vec in zip(batch, vectors):
+            chunk.embedding = vec
+    return chunks
+
+
+def embed_query(text: str) -> List[float]:
+    """Embed a single query string with the same model used for chunks."""
+    client = _get_client()
+    resp = client.embeddings.create(model=EMBEDDING_MODEL, input=[text])
+    return resp.data[0].embedding
