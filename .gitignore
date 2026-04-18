@@ -9,11 +9,27 @@ __pycache__/
 data/books/
 data/progress.json
 
+# Node / Next.js (frontend/)
+node_modules/
+.next/
+.vercel/
+.turbo/
+frontend/public/sitemap*.xml
+frontend/next-env.d.ts.bak
+frontend/.next/
+
 # Local env
 .env
 .env.local
+.env.*.local
 
 # Editor
 .vscode/
 .idea/
 .DS_Store
+
+# Local agent tooling (skills, caches — per-developer, not code)
+.agents/
+.claude/
+.pi/
+skills-lock.json
