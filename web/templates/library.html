@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>glosse — library</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="library">
+    <div class="container">
+        <h1>glosse</h1>
+        <div class="tagline">AI that helps you think while you read.</div>
+
+        {% if not books %}
+            <p>No books yet. Ingest one with <code>uv run glosse ingest path/to/book.epub</code>.</p>
+        {% endif %}
+
+        <div class="book-grid">
+            {% for book in books %}
+            <div class="book-card">
+                <div class="book-title">{{ book.title }}</div>
+                <div class="book-meta">
+                    {{ book.author or "—" }}<br>
+                    {{ book.chapters }} sections · at section {{ book.progress + 1 }}
+                </div>
+                {% if book.chapters %}
+                <div class="progress-bar">
+                    <span style="width: {{ (100 * (book.progress + 1) / book.chapters) | round(1) }}%"></span>
+                </div>
+                {% endif %}
+                <a href="/read/{{ book.id }}" class="btn">Read</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>
