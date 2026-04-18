@@ -1,90 +1,154 @@
 @import "tailwindcss";
 
 /*
- * Design tokens. The palette, typography stacks, and spacing rules here are
- * the foundation of the reader surface — every component should reference
- * these vars via Tailwind's arbitrary-value syntax (`bg-[var(--color-paper)]`)
- * or via the token-aliased utilities below.
+ * Design tokens — see glosse-design/src/modes.jsx for the canonical source.
  *
- * Four surface modes are planned: novel (default) / study / article / focus.
- * Only `novel` is fully tokenised here; the others stub the core palette —
- * fill them in when the frontend dev ports the full design.
+ * Three layers of tokens, each overridable at runtime:
+ *   1. Base tokens (`:root`)            — novel defaults
+ *   2. Surface mode (`[data-surface]`)  — novel / study / article / focus
+ *   3. User tweaks (inline style on <html>) — accent / serif / font-size / margin
  */
 
 @theme {
-  /* -- Palette (novel / default) ---------------------------------------- */
-  --color-paper: #f5eddc;
-  --color-paper-edge: #efe4cb;
-  --color-paper-deep: #e8dcbd;
-  --color-ink: #2a241c;
-  --color-ink-soft: #5a4e3d;
-  --color-ink-muted: #8a7a62;
-  --color-rule: rgba(42, 36, 28, 0.14);
-  --color-rule-soft: rgba(42, 36, 28, 0.08);
-  --color-accent: #b84a2b;
-  --color-accent-soft: #d89680;
-  --color-panel: #fbf5e8;
-  --color-highlight: rgba(226, 182, 90, 0.45);
-  --color-selection: rgba(184, 74, 43, 0.18);
+  /* Theme mapping — Tailwind uses --color-* / --font-* for utilities. */
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-accent: var(--accent);
 
-  /* -- Typography — font families injected by next/font in layout.tsx --- */
-  --font-serif: var(--font-newsreader), Georgia, serif;
-  --font-sans: var(--font-inter), system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+  --font-serif: var(--serif-stack);
+  --font-sans: var(--inter-stack);
+  --font-mono: var(--mono-stack);
+}
 
-  /* -- Reading rhythm --------------------------------------------------- */
+:root {
+  /* -- Palette (novel default) ----------------------------------------- */
+  --paper: #f5eddc;
+  --paper-edge: #efe4cb;
+  --paper-deep: #e8dcbd;
+  --ink: #2a241c;
+  --ink-soft: #5a4e3d;
+  --ink-muted: #8a7a62;
+  --rule: rgba(42, 36, 28, 0.14);
+  --rule-soft: rgba(42, 36, 28, 0.08);
+  --highlight: rgba(226, 182, 90, 0.45);
+  --selection: rgba(184, 74, 43, 0.18);
+  --panel-bg: #fbf5e8;
+  --app-bg-a: #1a1612;
+  --app-bg-b: #0f0d0a;
+
+  /* -- Accent (defaults to terracotta, changeable via TweaksPanel) ----- */
+  --accent: #b84a2b;
+  --accent-soft: #e2af9d;
+
+  /* -- Typography — next/font injects --font-newsreader / --font-inter /
+     --font-jetbrains; stacks below glue them together. */
+  --serif-stack: var(--font-newsreader), Georgia, serif;
+  --inter-stack: var(--font-inter), system-ui, sans-serif;
+  --mono-stack: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* Body/heading stacks can be rewritten by the surface mode + tweaks. */
+  --body-stack: var(--serif-stack);
+  --heading-stack: var(--serif-stack);
+
   --body-size: 20px;
   --line-height: 1.6;
+  --text-indent: 1.4em;
+  --text-align: justify;
   --page-pad: 96px;
 }
 
-/* -- Surface mode overrides — applied via <body data-surface="..."> -----
- *
- * LATER: full study/article/focus palettes. For the first pass we only use
- * novel. See glosse-design/src/modes.jsx for the full palette list.
- */
+/* -- Surface modes --------------------------------------------------- */
+
+[data-surface="novel"] {
+  --paper: #f5eddc;
+  --paper-edge: #efe4cb;
+  --paper-deep: #e8dcbd;
+  --ink: #2a241c;
+  --ink-soft: #5a4e3d;
+  --ink-muted: #8a7a62;
+  --rule: rgba(42, 36, 28, 0.14);
+  --rule-soft: rgba(42, 36, 28, 0.08);
+  --highlight: rgba(226, 182, 90, 0.45);
+  --selection: rgba(184, 74, 43, 0.18);
+  --panel-bg: #fbf5e8;
+  --app-bg-a: #1a1612;
+  --app-bg-b: #0f0d0a;
+  --line-height: 1.6;
+  --text-indent: 1.4em;
+  --text-align: justify;
+}
+
 [data-surface="study"] {
-  --color-paper: #ffffff;
-  --color-paper-edge: #f4f4f4;
-  --color-paper-deep: #ebebeb;
-  --color-ink: #111111;
-  --color-ink-soft: #3a3a3a;
-  --color-ink-muted: #767676;
-  --color-panel: #fafafa;
+  --paper: #ffffff;
+  --paper-edge: #f4f4f4;
+  --paper-deep: #ebebeb;
+  --ink: #111111;
+  --ink-soft: #3a3a3a;
+  --ink-muted: #767676;
+  --rule: rgba(0, 0, 0, 0.14);
+  --rule-soft: rgba(0, 0, 0, 0.07);
+  --highlight: rgba(255, 230, 0, 0.45);
+  --selection: rgba(0, 0, 0, 0.1);
+  --panel-bg: #fafafa;
+  --app-bg-a: #1d1d1d;
+  --app-bg-b: #0a0a0a;
+  --body-stack: var(--inter-stack);
+  --heading-stack: "Fraunces", Georgia, serif;
+  --line-height: 1.7;
+  --text-indent: 0;
+  --text-align: left;
 }
 
 [data-surface="article"] {
-  --color-paper: #faf8f5;
-  --color-paper-edge: #f2efe9;
-  --color-paper-deep: #e9e5dc;
-  --color-ink: #1a1a1a;
-  --color-ink-soft: #3f3f3f;
-  --color-ink-muted: #8a8178;
-  --color-panel: #f5f1ea;
+  --paper: #faf8f5;
+  --paper-edge: #f2efe9;
+  --paper-deep: #e9e5dc;
+  --ink: #1a1a1a;
+  --ink-soft: #3f3f3f;
+  --ink-muted: #8a8178;
+  --rule: rgba(0, 0, 0, 0.13);
+  --rule-soft: rgba(0, 0, 0, 0.06);
+  --highlight: rgba(255, 204, 0, 0.4);
+  --selection: rgba(0, 0, 0, 0.1);
+  --panel-bg: #f5f1ea;
+  --app-bg-a: #1a1814;
+  --app-bg-b: #0e0d0a;
+  --body-stack: "Lora", Georgia, serif;
+  --heading-stack: "Fraunces", Georgia, serif;
+  --line-height: 1.65;
+  --text-indent: 0;
+  --text-align: left;
 }
 
 [data-surface="focus"] {
-  --color-paper: #14110d;
-  --color-paper-edge: #1a1612;
-  --color-paper-deep: #0d0b08;
-  --color-ink: #e8ddc5;
-  --color-ink-soft: #b2a68d;
-  --color-ink-muted: #6f6653;
-  --color-panel: #100d0a;
+  --paper: #14110d;
+  --paper-edge: #1a1612;
+  --paper-deep: #0d0b08;
+  --ink: #e8ddc5;
+  --ink-soft: #b2a68d;
+  --ink-muted: #6f6653;
+  --rule: rgba(232, 221, 197, 0.14);
+  --rule-soft: rgba(232, 221, 197, 0.07);
+  --highlight: rgba(226, 182, 90, 0.22);
+  --selection: rgba(226, 182, 90, 0.18);
+  --panel-bg: #100d0a;
+  --app-bg-a: #000000;
+  --app-bg-b: #000000;
+  --line-height: 1.7;
+  --text-indent: 1.4em;
+  --text-align: justify;
 }
 
 /* -- Base ------------------------------------------------------------- */
 
 html, body {
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font-family: var(--font-serif);
-  transition: background 0.35s ease, color 0.35s ease;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body-stack);
+  transition: background 0.4s ease, color 0.4s ease;
 }
 
-::selection {
-  background: var(--color-selection);
-}
+::selection { background: var(--selection); }
 
 /* -- Chapter HTML — EPUB content injected via dangerouslySetInnerHTML --
  *
@@ -92,22 +156,22 @@ html, body {
  * tame typography so the book text feels native to the paper surface.
  */
 .chapter-html {
-  font-family: var(--font-serif);
+  font-family: var(--body-stack);
   font-size: var(--body-size);
   line-height: var(--line-height);
-  color: var(--color-ink);
+  color: var(--ink);
 }
 .chapter-html p {
   margin: 0 0 1em;
-  text-indent: 1.4em;
-  text-align: justify;
+  text-indent: var(--text-indent);
+  text-align: var(--text-align);
   hyphens: auto;
 }
 .chapter-html p:first-of-type { text-indent: 0; }
 .chapter-html h1, .chapter-html h2, .chapter-html h3, .chapter-html h4 {
-  font-family: var(--font-serif);
+  font-family: var(--heading-stack);
   font-weight: 500;
-  color: var(--color-ink);
+  color: var(--ink);
   margin: 1.5em 0 0.6em;
 }
 .chapter-html img {
@@ -119,7 +183,204 @@ html, body {
 .chapter-html blockquote {
   margin: 1.5em 0;
   padding-left: 1em;
-  border-left: 2px solid var(--color-rule);
+  border-left: 2px solid var(--rule);
   font-style: italic;
-  color: var(--color-ink-soft);
+  color: var(--ink-soft);
+}
+
+/* -- Drop cap on the first paragraph of a chapter --------------------- */
+.chapter-html.dropcap > p:first-of-type::first-letter {
+  font-family: var(--heading-stack);
+  font-size: calc(var(--body-size) * 2.8);
+  line-height: 0.85;
+  float: left;
+  padding: 4px 10px 0 0;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* -- Selectable highlight for future annotations ---------------------- */
+.annotation {
+  border-bottom: 1px dotted var(--accent);
+  color: var(--ink);
+  cursor: pointer;
+}
+.annotation:hover { background: rgba(127,127,127,0.10); }
+
+/* -- Shared utility classes (ported from glosse-design/src/app.jsx) -- */
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.icon-btn:hover { background: rgba(127, 127, 127, 0.1); color: var(--ink); }
+
+.ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 10px;
+  font-family: var(--inter-stack);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ai-btn:hover { background: rgba(127, 127, 127, 0.08); }
+
+.outline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  border-radius: 10px;
+  font-family: var(--inter-stack);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.outline-btn:hover { background: rgba(127, 127, 127, 0.08); }
+
+.filled-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: var(--paper);
+  border-radius: 10px;
+  font-family: var(--inter-stack);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.filled-btn:hover { opacity: 0.9; }
+.filled-btn:disabled { opacity: 0.4; cursor: default; }
+
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-family: var(--inter-stack);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.link-btn:hover { text-decoration: underline; }
+
+.quick-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  background: rgba(127, 127, 127, 0.05);
+  border: 1px solid var(--rule-soft);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: left;
+}
+.quick-tile:hover {
+  background: rgba(127, 127, 127, 0.12);
+  border-color: var(--rule);
+}
+
+.followup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(127, 127, 127, 0.06);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-family: var(--body-stack);
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  font-style: italic;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.followup:hover { background: rgba(127, 127, 127, 0.12); color: var(--ink); }
+
+.sel-menu {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 12px;
+  padding: 5px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3), 0 4px 10px rgba(0, 0, 0, 0.2);
+  transform: translate(-50%, -100%) translateY(-8px);
+}
+.sel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  background: transparent;
+  border: none;
+  color: var(--paper);
+  font-family: var(--inter-stack);
+  font-size: 12.5px;
+  font-weight: 500;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.sel-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.sel-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 0 1px;
+}
+
+.margin-note {
+  padding: 10px 14px;
+  border-left: 2px solid var(--accent);
+  background: rgba(127, 127, 127, 0.04);
+  cursor: pointer;
+  transition: background 0.15s;
+  border-radius: 0 6px 6px 0;
+}
+.margin-note:hover { background: rgba(127, 127, 127, 0.09); }
+
+/* -- Keyframes -------------------------------------------------------- */
+@keyframes tweakIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
