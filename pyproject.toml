@@ -16,6 +16,10 @@ dependencies = [
     # Codex/OpenAI SDK — used by glosse/codex/agent.py
     # (keep even for scaffold so dev can wire it up without a second install)
     "openai>=1.50.0",
+
+    # Load .env at server startup so OPENAI_API_KEY doesn't need to be
+    # exported in the shell manually.
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]

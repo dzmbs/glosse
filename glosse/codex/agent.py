@@ -162,6 +162,13 @@ def run_guide(req: GuideRequest) -> GuideResponse:
     provider = "openai"
     try:
         client, model = get_chat_client()
+    except RuntimeError as e:
+        return GuideResponse(
+            text=f"Guide unavailable: {e}",
+            suggested=mode_spec.default_actions,
+        )
+
+    try:
         text, used_tools, citations = _run_loop(
             client, model, messages, tools, req.book_id, req.chapter_index
         )

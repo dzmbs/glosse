@@ -6,7 +6,7 @@
  * This is a MINIMUM shell so the backend round-trip is already wired. The
  * frontend dev replaces this body with the full design from
  * `glosse-design/src/ai-panel.jsx`:
- *   - header with sparkle icon + "Lamp" + chapter badge + close
+ *   - header with sparkle icon + "Glosse" + chapter badge + close
  *   - welcome italic message
  *   - quick-action grid: Summarize / Quiz me / Explain / Who's who
  *   - user bubbles + AIAnswerCard / AISummaryCard / AIDefineCard
@@ -77,7 +77,7 @@ export function GuidePanel({
               color: "var(--color-ink)",
             }}
           >
-            Lamp
+            Glosse
           </div>
           <div
             className="text-[10px] font-medium uppercase tracking-widest"
