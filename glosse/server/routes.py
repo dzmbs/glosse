@@ -1,94 +1,144 @@
 """
-HTTP routes for the glosse reader.
+JSON API routes for glosse.
 
-- GET  /                           -- library view
-- GET  /read/{book_id}             -- redirect to last-read chapter
-- GET  /read/{book_id}/{idx}       -- reader view
-- GET  /read/{book_id}/images/..   -- per-book images
-- POST /api/guide                  -- Codex Guide panel
-- POST /api/progress               -- bump reading progress
+The frontend (Next.js in `frontend/`) is the user-facing surface. FastAPI is a
+pure JSON+image API — no HTML rendering happens here anymore.
+
+Endpoints:
+    GET  /api/library                            -- list of ingested books
+    GET  /api/books/{book_id}                    -- book metadata + TOC + spine
+    GET  /api/books/{book_id}/chapters/{idx}     -- one chapter's HTML + text
+    GET  /api/books/{book_id}/images/{name}      -- image file referenced by a chapter
+    POST /api/guide                              -- Codex Guide panel
+    POST /api/progress                           -- bump reading progress
 """
 
 from __future__ import annotations
 
 import os
-from typing import Optional
+import re
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from glosse.codex.agent import GuideRequest, run_guide
-from glosse.codex.modes import MODES, Mode
+from glosse.codex.modes import Mode
+from glosse.engine.models import TOCEntry
 from glosse.engine.storage import BOOKS_ROOT, book_dir, list_books, load_book
 from glosse.server.progress import get_progress, set_progress
 
 router = APIRouter()
 
-# Templates live under web/templates relative to the repo root.
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-templates = Jinja2Templates(directory=os.path.join(_REPO_ROOT, "web", "templates"))
+
+# --- Helpers -------------------------------------------------------------
 
 
-# --- Library + reader views ----------------------------------------------
+def _serialize_toc(entries: List[TOCEntry]) -> List[dict]:
+    """Convert the TOCEntry tree into a JSON-safe dict tree."""
+    out = []
+    for e in entries:
+        out.append(
+            {
+                "title": e.title,
+                "href": e.href,
+                "file_href": e.file_href,
+                "anchor": e.anchor,
+                "children": _serialize_toc(e.children),
+            }
+        )
+    return out
 
 
-@router.get("/", response_class=HTMLResponse)
-async def library_view(request: Request):
+_IMG_SRC_RE = re.compile(r'(<img[^>]+src=["\'])(images/)', re.IGNORECASE)
+
+
+def _rewrite_image_urls(html: str, book_id: str) -> str:
+    """
+    Chapter HTML has `src="images/foo.jpg"` from the ingest step. Rewrite to
+    absolute API paths so the browser hits the right endpoint regardless of
+    the page URL it was mounted under.
+    """
+    return _IMG_SRC_RE.sub(lambda m: f'{m.group(1)}/api/books/{book_id}/images/', html)
+
+
+# --- Library + book metadata --------------------------------------------
+
+
+@router.get("/api/library")
+async def api_library():
     books = []
     for meta in list_books():
         books.append(
             {
                 "id": meta["book_id"],
                 "title": meta.get("title", meta["book_id"]),
-                "author": ", ".join(meta.get("authors", []) or []),
+                "authors": meta.get("authors", []),
                 "chapters": meta.get("chapters", 0),
                 "progress": get_progress(meta["book_id"]),
                 "has_chunks": meta.get("has_chunks", False),
                 "in_inbox": meta.get("in_inbox", False),
             }
         )
-    return templates.TemplateResponse(request, "library.html", {"books": books})
+    return {"books": books}
 
 
-@router.get("/read/{book_id}", response_class=HTMLResponse)
-async def resume_reading(book_id: str):
-    return RedirectResponse(url=f"/read/{book_id}/{get_progress(book_id)}")
+@router.get("/api/books/{book_id}")
+async def api_book(book_id: str):
+    book = load_book(book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    # Keep the spine summary light — don't ship all chapter HTML here.
+    spine = [
+        {"index": ch.order, "title": ch.title, "href": ch.href}
+        for ch in book.spine
+    ]
+
+    return {
+        "id": book_id,
+        "title": book.metadata.title,
+        "authors": book.metadata.authors,
+        "language": book.metadata.language,
+        "description": book.metadata.description,
+        "chapters_total": len(book.spine),
+        "spine": spine,
+        "toc": _serialize_toc(book.toc),
+        "progress": get_progress(book_id),
+    }
 
 
-@router.get("/read/{book_id}/{chapter_index}", response_class=HTMLResponse)
-async def read_chapter(request: Request, book_id: str, chapter_index: int):
+@router.get("/api/books/{book_id}/chapters/{chapter_index}")
+async def api_chapter(book_id: str, chapter_index: int):
     book = load_book(book_id)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
     if not (0 <= chapter_index < len(book.spine)):
         raise HTTPException(status_code=404, detail="Chapter not found")
 
-    # Update progress on every read — only advances, never rewinds.
+    # Progress only advances — see glosse.server.progress.set_progress.
     set_progress(book_id, chapter_index)
 
-    current_chapter = book.spine[chapter_index]
+    ch = book.spine[chapter_index]
     prev_idx = chapter_index - 1 if chapter_index > 0 else None
     next_idx = chapter_index + 1 if chapter_index < len(book.spine) - 1 else None
 
-    return templates.TemplateResponse(
-        request,
-        "reader.html",
-        {
-            "book": book,
-            "current_chapter": current_chapter,
-            "chapter_index": chapter_index,
-            "book_id": book_id,
-            "prev_idx": prev_idx,
-            "next_idx": next_idx,
-            "progress": get_progress(book_id),
-            "modes": list(MODES.values()),
-        },
-    )
+    return {
+        "book_id": book_id,
+        "index": ch.order,
+        "title": ch.title,
+        "href": ch.href,
+        "html": _rewrite_image_urls(ch.content, book_id),
+        "text": ch.text,
+        "prev_index": prev_idx,
+        "next_index": next_idx,
+        "progress": get_progress(book_id),
+        "chapters_total": len(book.spine),
+    }
 
 
-@router.get("/read/{book_id}/images/{image_name}")
+@router.get("/api/books/{book_id}/images/{image_name}")
 async def serve_image(book_id: str, image_name: str):
     safe_book_id = os.path.basename(book_id)
     safe_image_name = os.path.basename(image_name)

@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. The palette, typography stacks, and spacing rules here are
+ * the foundation of the reader surface — every component should reference
+ * these vars via Tailwind's arbitrary-value syntax (`bg-[var(--color-paper)]`)
+ * or via the token-aliased utilities below.
+ *
+ * Four surface modes are planned: novel (default) / study / article / focus.
+ * Only `novel` is fully tokenised here; the others stub the core palette —
+ * fill them in when the frontend dev ports the full design.
+ */
+
+@theme {
+  /* -- Palette (novel / default) ---------------------------------------- */
+  --color-paper: #f5eddc;
+  --color-paper-edge: #efe4cb;
+  --color-paper-deep: #e8dcbd;
+  --color-ink: #2a241c;
+  --color-ink-soft: #5a4e3d;
+  --color-ink-muted: #8a7a62;
+  --color-rule: rgba(42, 36, 28, 0.14);
+  --color-rule-soft: rgba(42, 36, 28, 0.08);
+  --color-accent: #b84a2b;
+  --color-accent-soft: #d89680;
+  --color-panel: #fbf5e8;
+  --color-highlight: rgba(226, 182, 90, 0.45);
+  --color-selection: rgba(184, 74, 43, 0.18);
+
+  /* -- Typography — font families injected by next/font in layout.tsx --- */
+  --font-serif: var(--font-newsreader), Georgia, serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* -- Reading rhythm --------------------------------------------------- */
+  --body-size: 20px;
+  --line-height: 1.6;
+  --page-pad: 96px;
+}
+
+/* -- Surface mode overrides — applied via <body data-surface="..."> -----
+ *
+ * LATER: full study/article/focus palettes. For the first pass we only use
+ * novel. See glosse-design/src/modes.jsx for the full palette list.
+ */
+[data-surface="study"] {
+  --color-paper: #ffffff;
+  --color-paper-edge: #f4f4f4;
+  --color-paper-deep: #ebebeb;
+  --color-ink: #111111;
+  --color-ink-soft: #3a3a3a;
+  --color-ink-muted: #767676;
+  --color-panel: #fafafa;
+}
+
+[data-surface="article"] {
+  --color-paper: #faf8f5;
+  --color-paper-edge: #f2efe9;
+  --color-paper-deep: #e9e5dc;
+  --color-ink: #1a1a1a;
+  --color-ink-soft: #3f3f3f;
+  --color-ink-muted: #8a8178;
+  --color-panel: #f5f1ea;
+}
+
+[data-surface="focus"] {
+  --color-paper: #14110d;
+  --color-paper-edge: #1a1612;
+  --color-paper-deep: #0d0b08;
+  --color-ink: #e8ddc5;
+  --color-ink-soft: #b2a68d;
+  --color-ink-muted: #6f6653;
+  --color-panel: #100d0a;
+}
+
+/* -- Base ------------------------------------------------------------- */
+
+html, body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  transition: background 0.35s ease, color 0.35s ease;
+}
+
+::selection {
+  background: var(--color-selection);
+}
+
+/* -- Chapter HTML — EPUB content injected via dangerouslySetInnerHTML --
+ *
+ * The ingest pipeline already strips scripts/iframes/forms. These rules
+ * tame typography so the book text feels native to the paper surface.
+ */
+.chapter-html {
+  font-family: var(--font-serif);
+  font-size: var(--body-size);
+  line-height: var(--line-height);
+  color: var(--color-ink);
+}
+.chapter-html p {
+  margin: 0 0 1em;
+  text-indent: 1.4em;
+  text-align: justify;
+  hyphens: auto;
+}
+.chapter-html p:first-of-type { text-indent: 0; }
+.chapter-html h1, .chapter-html h2, .chapter-html h3, .chapter-html h4 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  color: var(--color-ink);
+  margin: 1.5em 0 0.6em;
+}
+.chapter-html img {
+  max-width: 100%;
+  height: auto;
+  margin: 1.5em auto;
+  display: block;
+}
+.chapter-html blockquote {
+  margin: 1.5em 0;
+  padding-left: 1em;
+  border-left: 2px solid var(--color-rule);
+  font-style: italic;
+  color: var(--color-ink-soft);
+}
