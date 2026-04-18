@@ -70,16 +70,32 @@ def _serialize_toc(entries: List[TOCEntry]) -> List[dict]:
     return out
 
 
-_IMG_SRC_RE = re.compile(r'(<img[^>]+src=["\'])(images/)', re.IGNORECASE)
+_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=["\'])([^"\']+)(["\'])', re.IGNORECASE)
 
 
 def _rewrite_image_urls(html: str, book_id: str) -> str:
     """
-    Chapter HTML has `src="images/foo.jpg"` from the ingest step. Rewrite to
-    absolute API paths so the browser hits the right endpoint regardless of
-    the page URL it was mounted under.
+    Rewrite every <img src="..."> to point at the per-book images endpoint.
+
+    Ingest already tries to rewrite srcs to `images/<safe_fname>`, but not
+    every EPUB has its covers wired cleanly into the image map (ITEM_COVER
+    used to be skipped, and some books embed arbitrary relative paths like
+    `assets/cover.png` or `../Images/fig3.jpg`). Collapsing to the basename
+    is a safe fallback — the extracted images are stored flat under
+    `data/books/<id>/images/` by the same basename.
+
+    Non-http(s), non-data URIs are rewritten. External URLs are left alone.
     """
-    return _IMG_SRC_RE.sub(lambda m: f'{m.group(1)}/api/books/{book_id}/images/', html)
+    def replace(m: re.Match) -> str:
+        prefix, src, quote = m.group(1), m.group(2), m.group(3)
+        if re.match(r"^(https?:|data:|/api/)", src, re.IGNORECASE):
+            return m.group(0)
+        basename = os.path.basename(src.split("#", 1)[0].split("?", 1)[0])
+        if not basename:
+            return m.group(0)
+        return f"{prefix}/api/books/{book_id}/images/{basename}{quote}"
+
+    return _IMG_SRC_RE.sub(replace, html)
 
 
 # --- Library + book metadata --------------------------------------------
