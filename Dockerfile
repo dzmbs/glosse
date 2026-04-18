@@ -5,6 +5,7 @@ RUN pip install uv
 WORKDIR /app
 
 COPY pyproject.toml .
+COPY README.md .
 COPY glosse/ glosse/
 COPY data/ data/
 
