@@ -180,23 +180,75 @@ function BookTile({
           {author || "—"}
         </div>
         {size === "large" && (
-          <div
-            className="mt-1.5"
-            style={{
-              fontFamily: "var(--mono-stack)",
-              fontSize: 10.5,
-              letterSpacing: 0.5,
-              color: "var(--ink-muted)",
-            }}
-          >
-            {book.finished
-              ? "finished"
-              : `${Math.round(book.pct * 100)}% · chapter ${book.progress + 1}`}
+          <div className="mt-1.5 flex items-center gap-2">
+            <span
+              style={{
+                fontFamily: "var(--mono-stack)",
+                fontSize: 10.5,
+                letterSpacing: 0.5,
+                color: "var(--ink-muted)",
+              }}
+            >
+              {book.finished
+                ? "finished"
+                : `${Math.round(book.pct * 100)}% · chapter ${book.progress + 1}`}
+            </span>
+            <IndexBadge book={book} />
           </div>
         )}
       </div>
     </Link>
   );
+}
+
+/**
+ * Tiny status pill shown on each book card.
+ *   - "indexed" — chunks.pkl exists, RAG retrieval is ready.
+ *   - "queued"  — EPUB sitting in data/inbox/ awaiting the next server boot.
+ * Nothing is rendered when neither signal is present.
+ */
+function IndexBadge({ book }: { book: BookWithProgress }) {
+  if (book.has_chunks) {
+    return (
+      <span
+        className="uppercase"
+        title="Chunks + embeddings produced. The Guide agent can ground answers in this book."
+        style={{
+          fontFamily: "var(--inter-stack)",
+          fontSize: 9,
+          letterSpacing: 0.9,
+          fontWeight: 600,
+          color: "var(--accent)",
+          border: "1px solid var(--accent)",
+          borderRadius: 999,
+          padding: "1px 7px",
+        }}
+      >
+        indexed
+      </span>
+    );
+  }
+  if (book.in_inbox) {
+    return (
+      <span
+        className="uppercase"
+        title="Source EPUB is in data/inbox/. It will be auto-ingested on next server boot."
+        style={{
+          fontFamily: "var(--inter-stack)",
+          fontSize: 9,
+          letterSpacing: 0.9,
+          fontWeight: 600,
+          color: "var(--ink-muted)",
+          border: "1px solid var(--rule)",
+          borderRadius: 999,
+          padding: "1px 7px",
+        }}
+      >
+        queued
+      </span>
+    );
+  }
+  return null;
 }
 
 function EmptyState() {
