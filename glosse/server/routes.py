@@ -77,6 +77,8 @@ async def api_library():
                 "authors": meta.get("authors", []),
                 "chapters": meta.get("chapters", 0),
                 "progress": get_progress(meta["book_id"]),
+                "has_chunks": meta.get("has_chunks", False),
+                "in_inbox": meta.get("in_inbox", False),
             }
         )
     return {"books": books}

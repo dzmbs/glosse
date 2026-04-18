@@ -13,12 +13,22 @@ also hit the API directly during tests.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from glosse.engine.storage import scan_and_ingest_inbox
 from glosse.server.routes import router
 
-app = FastAPI(title="glosse", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    scan_and_ingest_inbox()
+    yield
+
+
+app = FastAPI(title="glosse", version="0.1.0", lifespan=_lifespan)
 
 # Dev CORS. Tighten this when we ship.
 app.add_middleware(
