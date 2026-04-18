@@ -14,7 +14,7 @@ import type { NextConfig } from "next";
 const BACKEND = process.env.INTERNAL_API_BASE ?? "http://127.0.0.1:8123";
 
 function backendRemotePatterns() {
-  const patterns: import("next").RemotePattern[] = [
+  const patterns: NonNullable<NonNullable<NextConfig["images"]>["remotePatterns"]> = [
     { protocol: "http", hostname: "127.0.0.1", port: "8123" },
     { protocol: "http", hostname: "localhost", port: "8123" },
   ];
