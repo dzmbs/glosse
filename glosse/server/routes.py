@@ -45,6 +45,8 @@ async def library_view(request: Request):
                 "author": ", ".join(meta.get("authors", []) or []),
                 "chapters": meta.get("chapters", 0),
                 "progress": get_progress(meta["book_id"]),
+                "has_chunks": meta.get("has_chunks", False),
+                "in_inbox": meta.get("in_inbox", False),
             }
         )
     return templates.TemplateResponse(request, "library.html", {"books": books})

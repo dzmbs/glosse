@@ -33,6 +33,7 @@ DATA_ROOT = os.environ.get(
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data"),
 )
 BOOKS_ROOT = os.path.join(DATA_ROOT, "books")
+INBOX_DIR = os.path.join(DATA_ROOT, "inbox")
 
 
 def slugify(name: str) -> str:
@@ -88,25 +89,54 @@ def list_books() -> List[dict]:
     """Return a small summary per book — enough for the library view."""
     if not os.path.isdir(BOOKS_ROOT):
         return []
+    inbox_ids: set = set()
+    if os.path.isdir(INBOX_DIR):
+        for fname in os.listdir(INBOX_DIR):
+            if fname.lower().endswith(".epub"):
+                inbox_ids.add(slugify(fname))
     out = []
     for book_id in sorted(os.listdir(BOOKS_ROOT)):
         meta_path = os.path.join(book_dir(book_id), "meta.json")
         if os.path.exists(meta_path):
             with open(meta_path) as f:
-                out.append(json.load(f))
+                entry = json.load(f)
         else:
             # Fall back to loading the pickle (slow path — should not happen)
             book = load_book(book_id)
-            if book:
-                out.append(
-                    {
-                        "book_id": book_id,
-                        "title": book.metadata.title,
-                        "authors": book.metadata.authors,
-                        "chapters": len(book.spine),
-                    }
-                )
+            if not book:
+                continue
+            entry = {
+                "book_id": book_id,
+                "title": book.metadata.title,
+                "authors": book.metadata.authors,
+                "chapters": len(book.spine),
+            }
+        entry["has_chunks"] = os.path.exists(os.path.join(book_dir(book_id), "chunks.pkl"))
+        entry["in_inbox"] = book_id in inbox_ids
+        out.append(entry)
     return out
+
+
+def scan_and_ingest_inbox() -> None:
+    """Scan INBOX_DIR for EPUBs; ingest any not already in BOOKS_ROOT."""
+    from glosse.engine.ingest import ingest  # local import — avoids circular at module level
+
+    os.makedirs(INBOX_DIR, exist_ok=True)
+    for fname in sorted(os.listdir(INBOX_DIR)):
+        if not fname.lower().endswith(".epub"):
+            continue
+        book_id = slugify(fname)
+        if os.path.exists(os.path.join(book_dir(book_id), "book.pkl")):
+            logger.info("inbox: %s already ingested as %s — skip", fname, book_id)
+            continue
+        epub_path = os.path.join(INBOX_DIR, fname)
+        try:
+            target = ensure_book_dir(book_id)
+            book = ingest(epub_path, target)
+            save_book(book, book_id)
+            logger.info("inbox: ingested %s -> %s", fname, book_id)
+        except Exception as exc:
+            logger.error("inbox: failed to ingest %s: %s", fname, exc)
 
 
 # --- Chunks ---------------------------------------------------------------
