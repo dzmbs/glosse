@@ -12,6 +12,8 @@ dependencies = [
     # Web server — pure JSON API; Next.js frontend consumes this.
     "fastapi>=0.121.2",
     "uvicorn>=0.38.0",
+    # Multipart form parsing — needed for POST /api/library/upload.
+    "python-multipart>=0.0.18",
 
     # Codex/OpenAI SDK — used by glosse/codex/agent.py
     # (keep even for scaffold so dev can wire it up without a second install)

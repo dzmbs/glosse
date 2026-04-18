@@ -15,19 +15,38 @@ Endpoints:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
-from typing import List, Optional
+import shutil
+import tempfile
+from typing import List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from glosse.codex.agent import GuideRequest, run_guide
 from glosse.codex.modes import Mode
+from glosse.engine.ingest import ingest
 from glosse.engine.models import TOCEntry
-from glosse.engine.storage import BOOKS_ROOT, book_dir, list_books, load_book
+from glosse.engine.storage import (
+    BOOKS_ROOT,
+    book_dir,
+    ensure_book_dir,
+    list_books,
+    load_book,
+    read_meta,
+    save_book,
+    slugify,
+    update_meta,
+)
 from glosse.server.progress import get_progress, set_progress
+
+logger = logging.getLogger(__name__)
+
+SurfaceId = Literal["novel", "study", "article", "focus"]
+_VALID_SURFACES = {"novel", "study", "article", "focus"}
 
 router = APIRouter()
 
@@ -79,9 +98,73 @@ async def api_library():
                 "progress": get_progress(meta["book_id"]),
                 "has_chunks": meta.get("has_chunks", False),
                 "in_inbox": meta.get("in_inbox", False),
+                "default_surface": meta.get("default_surface"),
             }
         )
     return {"books": books}
+
+
+@router.post("/api/library/upload")
+async def api_library_upload(
+    file: UploadFile = File(...),
+    surface: str = Form("novel"),
+):
+    """
+    Accept a user-uploaded EPUB, ingest it immediately, and persist the
+    reader's preferred surface mode (novel / study / article / focus).
+
+    The file is written to a temp path, passed through the same `ingest()`
+    pipeline the CLI uses, then stashed under data/books/<book_id>/.
+    """
+    filename = file.filename or "book.epub"
+    if not filename.lower().endswith(".epub"):
+        raise HTTPException(status_code=400, detail="Only .epub files are accepted.")
+
+    surface_norm = surface.lower().strip()
+    if surface_norm not in _VALID_SURFACES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"surface must be one of {sorted(_VALID_SURFACES)}",
+        )
+
+    book_id = slugify(filename)
+    target_dir = ensure_book_dir(book_id)
+
+    # Stream the upload to a temp file. EPUBs are small enough for disk
+    # round-trip to be cheap, and ebooklib wants a path, not a stream.
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".epub", prefix="glosse_upload_")
+    try:
+        with os.fdopen(tmp_fd, "wb") as tmp:
+            while True:
+                chunk = await file.read(1024 * 256)
+                if not chunk:
+                    break
+                tmp.write(chunk)
+        book = ingest(tmp_path, target_dir)
+        save_book(book, book_id)
+        update_meta(book_id, {"default_surface": surface_norm})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("upload: ingest failed for %s", filename)
+        # Best-effort cleanup — remove the partially-ingested book dir so
+        # a retry starts fresh.
+        shutil.rmtree(target_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"ingest failed: {exc}")
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        await file.close()
+
+    return {
+        "id": book_id,
+        "title": book.metadata.title,
+        "authors": book.metadata.authors,
+        "chapters": len(book.spine),
+        "default_surface": surface_norm,
+    }
 
 
 @router.get("/api/books/{book_id}")
@@ -96,6 +179,11 @@ async def api_book(book_id: str):
         for ch in book.spine
     ]
 
+    meta = read_meta(book_id)
+    default_surface = meta.get("default_surface")
+    if default_surface not in _VALID_SURFACES:
+        default_surface = None
+
     return {
         "id": book_id,
         "title": book.metadata.title,
@@ -106,6 +194,7 @@ async def api_book(book_id: str):
         "spine": spine,
         "toc": _serialize_toc(book.toc),
         "progress": get_progress(book_id),
+        "default_surface": default_surface,
     }
 
 
