@@ -13,12 +13,23 @@ import type { NextConfig } from "next";
 
 const BACKEND = process.env.INTERNAL_API_BASE ?? "http://127.0.0.1:8123";
 
+function backendRemotePatterns() {
+  const patterns: import("next").RemotePattern[] = [
+    { protocol: "http", hostname: "127.0.0.1", port: "8123" },
+    { protocol: "http", hostname: "localhost", port: "8123" },
+  ];
+  // Allow Railway or any other production backend hostname set via env var.
+  // e.g. NEXT_PUBLIC_IMAGE_HOSTNAME=glosse-backend.up.railway.app
+  const extraHost = process.env.NEXT_PUBLIC_IMAGE_HOSTNAME;
+  if (extraHost) {
+    patterns.push({ protocol: "https", hostname: extraHost });
+  }
+  return patterns;
+}
+
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: [
-      { protocol: "http", hostname: "127.0.0.1", port: "8123" },
-      { protocol: "http", hostname: "localhost", port: "8123" },
-    ],
+    remotePatterns: backendRemotePatterns(),
   },
   // Expose the backend URL to the Route Handler without a second env var.
   env: { GLOSSE_BACKEND: BACKEND },

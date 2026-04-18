@@ -5,9 +5,16 @@ __pycache__/
 .venv/
 .uv-cache/
 
-# Glosse book library (ingested books live here)
-data/books/
-data/progress.json
+# Glosse book library — raw EPUBs and images stay out; parsed state is committed for deploy
+data/books/*.epub
+data/books/*/images/
+data/inbox/
+
+# Allow the ingested book state (needed for Railway deploy)
+!data/books/*/book.pkl
+!data/books/*/chunks.pkl
+!data/books/*/meta.json
+!data/progress.json
 
 # Node / Next.js (frontend/)
 node_modules/

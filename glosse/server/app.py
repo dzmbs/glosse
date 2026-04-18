@@ -13,6 +13,7 @@ also hit the API directly during tests.
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -33,13 +34,12 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(title="glosse", version="0.1.0", lifespan=_lifespan)
 
-# Dev CORS. Tighten this when we ship.
+_default_origins = "http://localhost:3000,http://127.0.0.1:3000"
+_allowed_origins = [o.strip() for o in os.getenv("GLOSSE_ALLOWED_ORIGIN", _default_origins).split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
