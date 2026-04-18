@@ -70,21 +70,36 @@ def _serialize_toc(entries: List[TOCEntry]) -> List[dict]:
     return out
 
 
-_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=["\'])([^"\']+)(["\'])', re.IGNORECASE)
+_IMG_REF_RE = re.compile(
+    # Matches three shapes in one pass:
+    #   <img ... src="...">
+    #   <image ... xlink:href="...">   (SVG 1.1, common in ebookmaker covers)
+    #   <image ... href="...">          (SVG 2)
+    r'(<(?:img|image)\b[^>]*?\b(?:src|xlink:href|href)=["\'])([^"\']+)(["\'])',
+    re.IGNORECASE,
+)
 
 
 def _rewrite_image_urls(html: str, book_id: str) -> str:
     """
-    Rewrite every <img src="..."> to point at the per-book images endpoint.
+    Rewrite every image reference to point at the per-book images endpoint.
 
-    Ingest already tries to rewrite srcs to `images/<safe_fname>`, but not
-    every EPUB has its covers wired cleanly into the image map (ITEM_COVER
-    used to be skipped, and some books embed arbitrary relative paths like
-    `assets/cover.png` or `../Images/fig3.jpg`). Collapsing to the basename
-    is a safe fallback — the extracted images are stored flat under
-    `data/books/<id>/images/` by the same basename.
+    Covers three tags we've seen in the wild:
+      - <img src="…">              — the common case
+      - <image xlink:href="…">      — SVG 1.1 wrappers around raster covers
+                                      (ebookmaker emits these for Dracula-
+                                      style cover pages; skipping them left
+                                      the browser rendering a stretched
+                                      broken-image glyph on section 1)
+      - <image href="…">            — SVG 2
 
-    Non-http(s), non-data URIs are rewritten. External URLs are left alone.
+    Ingest also tries to rewrite srcs at parse time, but not every EPUB
+    wires its cover cleanly into the image map and some books embed
+    arbitrary relative paths (`assets/cover.png`, `../Images/fig3.jpg`).
+    Collapsing to basename here is a safe fallback — extracted images are
+    stored flat under `data/books/<id>/images/` by basename.
+
+    External http(s) / data URIs are left alone.
     """
     def replace(m: re.Match) -> str:
         prefix, src, quote = m.group(1), m.group(2), m.group(3)
@@ -95,7 +110,7 @@ def _rewrite_image_urls(html: str, book_id: str) -> str:
             return m.group(0)
         return f"{prefix}/api/books/{book_id}/images/{basename}{quote}"
 
-    return _IMG_SRC_RE.sub(replace, html)
+    return _IMG_REF_RE.sub(replace, html)
 
 
 # --- Library + book metadata --------------------------------------------
