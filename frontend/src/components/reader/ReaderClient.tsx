@@ -245,8 +245,8 @@ export function ReaderClient({
       e.preventDefault();
 
       if (raw.startsWith("#")) {
-        const el = root.querySelector<HTMLElement>(`#${CSS.escape(raw.slice(1))}`)
-          ?? root.querySelector<HTMLElement>(`[name="${CSS.escape(raw.slice(1))}"]`);
+        const el = (root.querySelector(`#${CSS.escape(raw.slice(1))}`) as HTMLElement | null)
+          ?? (root.querySelector(`[name="${CSS.escape(raw.slice(1))}"]`) as HTMLElement | null);
         if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }
