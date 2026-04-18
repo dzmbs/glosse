@@ -131,8 +131,7 @@ export function ReaderClient({
     >
       <ReaderTopBar
         bookTitle={book.title}
-        chapterIndex={chapter.index}
-        chaptersTotal={chapter.chapters_total}
+        chapterLabel={chapterLabel}
         progressPct={progressPct}
         onOpenToc={() => setTocOpen(true)}
         onOpenHighlights={() => setHighlightsOpen(true)}

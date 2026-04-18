@@ -4,32 +4,38 @@
  * BookPage — scrollable chapter surface. Ports the single-column form of
  * BookPage from glosse-design/src/reader.jsx.
  *
- *   [running head: book title ↔ chapter]   (novel/focus only)
- *   [chapter head]                           (variant per surface mode)
- *   [injected EPUB HTML]                     (drop cap on novel/article/focus)
+ *   [running head: book title ↔ section]   (novel/focus only)
+ *   [injected EPUB HTML]                    (drop cap on novel/article/focus)
+ *
+ * We deliberately DO NOT synthesize a "Chapter N" head above the injected
+ * HTML. The EPUB's own markup almost always includes the publisher's
+ * chapter heading ("CHAPTER V", "§6.2 Gradient-Based Learning"); adding
+ * our own would double up the label — and because spine index ≠ real
+ * chapter number, the synthesized label was almost always wrong anyway.
  *
  * LATER: two-page spread (novel). LATER: margin AI notes. LATER: inline
  * annotations that open a popover.
  */
 
-import { ChapterHead } from "@/components/reader/ChapterHead";
 import type { ModeSpec } from "@/lib/modes";
 
 type Props = {
   html: string;
-  chapterIndex: number;
-  chaptersTotal: number;
+  sectionIndex: number;     // spine position, 0-based
+  sectionsTotal: number;
   bookTitle: string;
-  chapterTitle: string;
+  // Best-known title for this section — from TOC if available, otherwise
+  // the spine fallback ("Section N"). Used in the running head.
+  sectionTitle: string | null;
   mode: ModeSpec;
 };
 
 export function BookPage({
   html,
-  chapterIndex,
-  chaptersTotal,
+  sectionIndex,
+  sectionsTotal,
   bookTitle,
-  chapterTitle,
+  sectionTitle,
   mode,
 }: Props) {
   return (
@@ -71,7 +77,7 @@ export function BookPage({
                 fontSize: 12,
               }}
             >
-              {chapterIndex + 1}
+              {sectionIndex + 1}
             </span>
           </div>
         ) : (
@@ -85,7 +91,11 @@ export function BookPage({
               fontWeight: 500,
             }}
           >
-            <span>Ch. {chapterIndex + 1} of {chaptersTotal}</span>
+            <span>
+              {sectionTitle && !/^Section \d+$/i.test(sectionTitle)
+                ? sectionTitle
+                : `Section ${sectionIndex + 1} of ${sectionsTotal}`}
+            </span>
             <span
               style={{
                 fontFamily: "var(--mono-stack)",
@@ -94,20 +104,10 @@ export function BookPage({
                 textTransform: "none",
               }}
             >
-              {chapterIndex + 1}
+              {sectionIndex + 1}
             </span>
           </div>
         )}
-
-        <ChapterHead
-          variant={mode.chapterHead}
-          index={chapterIndex}
-          title={chapterTitle}
-          // LATER: once the ingest pipeline surfaces TOC subtitles as
-          // separate fields we can pass `sub` in for the banner variant.
-          sub={null}
-          kicker={null}
-        />
 
         <article
           className={"chapter-html" + (mode.dropcap ? " dropcap" : "")}
