@@ -68,6 +68,7 @@ export function ReaderClient({
   }, [chapter.text]);
 
   const progressPct = (chapter.index + 1) / chapter.chapters_total;
+  const chapterLabel = chapter.title || `Chapter ${chapter.index + 1}`;
 
   // -- Selection tracking ------------------------------------------------
 
@@ -154,10 +155,10 @@ export function ReaderClient({
         >
           <BookPage
             html={chapter.html}
-            chapterIndex={chapter.index}
-            chaptersTotal={chapter.chapters_total}
+            sectionIndex={chapter.index}
+            sectionsTotal={chapter.chapters_total}
             bookTitle={book.title}
-            chapterTitle={chapter.title}
+            sectionTitle={chapter.title}
             mode={mode}
           />
         </div>
