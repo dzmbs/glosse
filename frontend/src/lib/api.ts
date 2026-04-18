@@ -16,6 +16,11 @@ export type BookSummary = {
   authors: string[];
   chapters: number;
   progress: number;
+  /** True once `glosse index <id>` has produced chunks.pkl. */
+  has_chunks?: boolean;
+  /** True when the source EPUB is still sitting in `data/inbox/`
+   *  (picked up on server boot via scan_and_ingest_inbox). */
+  in_inbox?: boolean;
 };
 
 export type LibraryResponse = {
@@ -88,6 +93,9 @@ export type GuideResponse = {
     text: string;
   }>;
   suggested: string[];
+  /** Backend-owned diagnostics (provider, model, tool-call trace). Optional
+   *  — present when the agent loop ran; absent when the stub short-circuits. */
+  debug?: Record<string, unknown>;
 };
 
 // -- Internals ------------------------------------------------------------
