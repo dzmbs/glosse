@@ -53,7 +53,7 @@ export function ReaderBottomBar({
           minWidth: 90,
         }}
       >
-        ch. {chapterIndex + 1} / {chaptersTotal}
+        sec. {chapterIndex + 1} / {chaptersTotal}
       </div>
 
       <div className="flex-1 flex items-center gap-[14px]">

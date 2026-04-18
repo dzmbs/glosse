@@ -156,17 +156,9 @@ export function TOCDrawer({
                   </div>
                 )}
               </div>
-              <div
-                className="flex-shrink-0"
-                style={{
-                  fontFamily: "var(--mono-stack)",
-                  fontSize: 11,
-                  color: "var(--ink-muted)",
-                  paddingTop: 4,
-                }}
-              >
-                ch. {e.spineIndex + 1}
-              </div>
+              {/* Intentionally no chapter-number pill on the right —
+                  the spine index isn't the book's chapter number, and
+                  mixing the two ("CHAPTER I … ch. 5") was the bug. */}
             </button>
           );
         })}

@@ -28,6 +28,7 @@ import { SelectionMenu, type SelectionAction } from "@/components/reader/Selecti
 import { ReaderTopBar } from "@/components/reader/TopBar";
 import { Icon } from "@/components/Icons";
 import { api, type BookDetail, type Chapter } from "@/lib/api";
+import { tocTitleForChapter } from "@/lib/toc";
 import { useTweaks } from "@/lib/tweaks";
 
 const WORDS_PER_MINUTE = 240;
@@ -261,7 +262,14 @@ export function ReaderClient({
     [sel],
   );
 
-  const chapterLabel = `Chapter ${chapter.index + 1}`;
+  // Prefer the TOC-resolved title ("CHAPTER I JONATHAN HARKER'S JOURNAL")
+  // over a spine-derived fallback like "Section 5" — spine index != book
+  // chapter number.
+  const sectionTitle = useMemo(
+    () => tocTitleForChapter(book, chapter),
+    [book, chapter],
+  );
+  const chapterLabel = sectionTitle ?? `Section ${chapter.index + 1}`;
   const isPill = tweaks.aiStyle === "pill";
 
   const prevHandler = useCallback(() => {
@@ -280,8 +288,7 @@ export function ReaderClient({
     >
       <ReaderTopBar
         bookTitle={book.title}
-        chapterIndex={chapter.index}
-        chaptersTotal={chapter.chapters_total}
+        chapterLabel={chapterLabel}
         progressPct={progressPct}
         onOpenToc={() => setTocOpen(true)}
         onOpenHighlights={() => setHighlightsOpen(true)}
@@ -303,10 +310,10 @@ export function ReaderClient({
             <BookPage
               key={chapter.index}
               html={chapter.html}
-              chapterIndex={chapter.index}
-              chaptersTotal={chapter.chapters_total}
+              sectionIndex={chapter.index}
+              sectionsTotal={chapter.chapters_total}
               bookTitle={book.title}
-              chapterTitle={chapter.title}
+              sectionTitle={sectionTitle}
               mode={mode}
             />
           </div>

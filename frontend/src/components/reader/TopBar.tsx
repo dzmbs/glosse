@@ -3,7 +3,12 @@
 /**
  * ReaderTopBar — ports ReaderTopBar from glosse-design/src/reader.jsx.
  *
- *   [library] [toc]   <title> · ch · %  [ModePill]  [pencil] [tweaks] [highlight] [Ask]
+ *   [library] [toc]   <title> · <tocTitle> · %   [ModePill]  [pencil] [tweaks] [highlight] [Ask]
+ *
+ * The sub-line under the book title shows the chapter title resolved
+ * from the TOC (e.g. "CHAPTER I · JONATHAN HARKER'S JOURNAL"), NOT the
+ * spine index. Spine index != book chapter number — front matter pushes
+ * them apart.
  */
 
 import Link from "next/link";
@@ -14,8 +19,7 @@ import { useTweaks } from "@/lib/tweaks";
 
 export function ReaderTopBar({
   bookTitle,
-  chapterIndex,
-  chaptersTotal,
+  chapterLabel,
   progressPct,
   onOpenToc,
   onOpenHighlights,
@@ -24,8 +28,9 @@ export function ReaderTopBar({
   onPencil,
 }: {
   bookTitle: string;
-  chapterIndex: number;
-  chaptersTotal: number;
+  /** TOC-derived title for the current section, already uppercased /
+   *  truncated by the parent. Falls back to e.g. "Section 5". */
+  chapterLabel: string;
   progressPct: number;
   onOpenToc: () => void;
   onOpenHighlights: () => void;
@@ -66,16 +71,17 @@ export function ReaderTopBar({
           {bookTitle}
         </div>
         <div
+          className="truncate max-w-full uppercase"
           style={{
             fontFamily: "var(--inter-stack)",
             fontSize: 10,
             fontWeight: 500,
             color: "var(--ink-muted)",
             letterSpacing: 1.4,
-            textTransform: "uppercase",
           }}
+          title={chapterLabel}
         >
-          Chapter {chapterIndex + 1} · {Math.round(progressPct * 100)}%
+          {chapterLabel} · {Math.round(progressPct * 100)}%
         </div>
       </div>
 
@@ -102,9 +108,6 @@ export function ReaderTopBar({
         <Icon.sparkle size={15} />
         <span>Ask</span>
       </button>
-
-      {/* Unused total for SR context */}
-      <span className="sr-only">of {chaptersTotal}</span>
     </header>
   );
 }
