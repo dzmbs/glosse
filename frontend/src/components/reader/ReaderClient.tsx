@@ -10,21 +10,19 @@
  * What it owns:
  *   - the currently-displayed chapter (state, not props)
  *   - open drawers (TOC, Highlights, Tweaks)
- *   - AI panel open/closed and seed action
- *   - floating selection menu position + text
+ *   - AI panel open/closed
+ *   - current text selection (used as chat context when present)
  */
 
 import { flushSync } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { AISeed } from "@/components/ai/AIPanel";
 import { AIPanel } from "@/components/ai/AIPanel";
 import { HighlightsDrawer } from "@/components/drawers/HighlightsDrawer";
 import { TOCDrawer } from "@/components/drawers/TOCDrawer";
 import { TweaksPanel } from "@/components/drawers/TweaksPanel";
 import { BookPage } from "@/components/reader/BookPage";
 import { ReaderBottomBar } from "@/components/reader/BottomBar";
-import { SelectionMenu, type SelectionAction } from "@/components/reader/SelectionMenu";
 import { ReaderTopBar } from "@/components/reader/TopBar";
 import { Icon } from "@/components/Icons";
 import { api, type BookDetail, type Chapter } from "@/lib/api";
@@ -81,12 +79,12 @@ export function ReaderClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book.id, book.default_surface, setTweaks]);
 
-  const [aiSeed, setAiSeed] = useState<AISeed>(null);
-  const [aiSeedPayload, setAiSeedPayload] = useState<string | null>(null);
-
-  const [sel, setSel] = useState<{ x: number; y: number; text: string } | null>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const articleWrapRef = useRef<HTMLDivElement>(null);
+  const [selectedText, setSelectedText] = useState<string | null>(null);
+  const [selectionContext, setSelectionContext] = useState<string | null>(null);
+  const selectedTextRef = useRef<string | null>(null);
+  const preserveSelectionForAskRef = useRef(false);
 
   // -- Chapter navigation (client-side, animated) -----------------------
 
@@ -98,7 +96,10 @@ export function ReaderClient({
       setNavPending(true);
       const direction: SwapDirection = nextIndex > chapter.index ? "forward" : "back";
 
-      setSel(null);
+      setSelectedText(null);
+      setSelectionContext(null);
+      selectedTextRef.current = null;
+      preserveSelectionForAskRef.current = false;
       window.getSelection()?.removeAllRanges();
 
       try {
@@ -155,72 +156,66 @@ export function ReaderClient({
   const progressPct = (chapter.index + 1) / chapter.chapters_total;
 
   // -- Selection tracking ------------------------------------------------
-  // Only show the menu after the drag ends (mouseup). Reading the selection
-  // during selectionchange (which fires on every mouse move) and calling
-  // setSel each time causes React re-renders mid-drag, which flickers and
-  // resets the browser's selection anchor to the chapter start.
+  // Native selection/copy must feel exactly like a normal reader. We only
+  // remember the currently-selected text so the explicit Ask button can use
+  // it; selecting text alone must not trigger UI.
 
+  const readSelectedText = useCallback(() => {
+    const s = window.getSelection();
+    if (!s || s.isCollapsed || !mainRef.current || s.rangeCount === 0) return null;
+
+    const anchorNode = s.anchorNode;
+    const focusNode = s.focusNode;
+    if (!anchorNode || !focusNode) return null;
+    if (!mainRef.current.contains(anchorNode) || !mainRef.current.contains(focusNode)) {
+      return null;
+    }
+
+    const text = s.toString().trim();
+    return text || null;
+  }, []);
+
+  const captureSelectedText = useCallback(() => {
+    const text = readSelectedText();
+    if (text) {
+      setSelectedText(text);
+      selectedTextRef.current = text;
+      preserveSelectionForAskRef.current = true;
+    }
+  }, [readSelectedText]);
+
+  // Mirror the native selection into React state at gesture end so the
+  // AI panel can show it live as "Using selected passage". We intentionally
+  // do NOT listen to `selectionchange` — committing on every tick wipes the
+  // browser's live Range mid-drag. BookPage is memoised, so this re-render
+  // no longer re-applies the chapter's innerHTML.
+  //
+  // Selection is sticky: once captured it stays as AI context until the
+  // user dismisses it via the × on the chip, selects a new passage, or
+  // navigates to a different chapter. Clicking into the textarea collapses
+  // the DOM selection but must not clear our stored passage.
   useEffect(() => {
-    // After the menu appears, the very next pointerdown is still part of the
-    // same drag-release gesture. Skip it so we don't immediately dismiss.
-    let skipNextPointerDown = false;
-
-    const onUp = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest(".sel-menu")) return;
-      const s = window.getSelection();
-      if (!s || s.isCollapsed || !mainRef.current) return;
-      const text = s.toString().trim();
+    const commit = () => {
+      const text = readSelectedText();
       if (!text) return;
-      if (
-        !mainRef.current.contains(s.anchorNode) ||
-        !mainRef.current.contains(s.focusNode)
-      ) return;
-      const range = s.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return;
-      setSel({ x: rect.left + rect.width / 2, y: rect.top, text });
-      skipNextPointerDown = true;
+      selectedTextRef.current = text;
+      preserveSelectionForAskRef.current = false;
+      setSelectedText((prev) => (prev === text ? prev : text));
     };
 
-    // Dismiss on the next independent pointerdown outside the menu.
-    const onPointerDown = (e: PointerEvent) => {
-      if (skipNextPointerDown) { skipNextPointerDown = false; return; }
-      const t = e.target as HTMLElement;
-      if (t.closest(".sel-menu")) return;
-      setSel(null);
-    };
-
-    // Keyboard selection (shift+arrows, ctrl+a, etc.) — show menu on idle selectionchange.
-    let isPointerDown = false;
-    const onPointerDownTrack = () => { isPointerDown = true; };
-    const onPointerUp = () => { isPointerDown = false; };
-    const onSelectionChange = () => {
-      if (isPointerDown) return;
-      const s = window.getSelection();
-      if (!s || s.isCollapsed) { setSel(null); return; }
-      // reuse onUp logic via a synthetic call
-      const text = s.toString().trim();
-      if (!text || !mainRef.current) { setSel(null); return; }
-      if (!mainRef.current.contains(s.anchorNode) || !mainRef.current.contains(s.focusNode)) { setSel(null); return; }
-      const range = s.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return;
-      setSel({ x: rect.left + rect.width / 2, y: rect.top, text });
-    };
-
-    document.addEventListener("mouseup", onUp);
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("pointerdown", onPointerDownTrack);
-    document.addEventListener("pointerup", onPointerUp);
-    document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("mouseup", commit);
+    document.addEventListener("keyup", commit);
     return () => {
-      document.removeEventListener("mouseup", onUp);
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("pointerdown", onPointerDownTrack);
-      document.removeEventListener("pointerup", onPointerUp);
-      document.removeEventListener("selectionchange", onSelectionChange);
+      document.removeEventListener("mouseup", commit);
+      document.removeEventListener("keyup", commit);
     };
+  }, [readSelectedText]);
+
+  const clearSelection = useCallback(() => {
+    selectedTextRef.current = null;
+    preserveSelectionForAskRef.current = false;
+    setSelectedText(null);
+    window.getSelection()?.removeAllRanges();
   }, []);
 
   // -- Intercept links inside chapter HTML -----------------------------
@@ -267,21 +262,17 @@ export function ReaderClient({
     return () => root.removeEventListener("click", onClick);
   }, [book.spine, chapter.index, navigateChapter]);
 
-  // -- Selection → AI seed --------------------------------------------
+  // -- Ask button ------------------------------------------------------
 
-  const onSelectionAction = useCallback(
-    (id: SelectionAction) => {
-      if (!sel) return;
-      if (id === "ask" || id === "explain" || id === "define") {
-        setAiOpen(true);
-        setAiSeedPayload(sel.text);
-        setAiSeed("selection-ask");
-      }
-      setSel(null);
-      window.getSelection()?.removeAllRanges();
-    },
-    [sel],
-  );
+  const onAskToggle = useCallback(() => {
+    const text = selectedTextRef.current?.trim();
+    preserveSelectionForAskRef.current = false;
+    if (text) {
+      setAiOpen(true);
+      return;
+    }
+    setAiOpen((v) => !v);
+  }, []);
 
   // Prefer the TOC-resolved title over a spine-derived fallback.
   const sectionTitle = useMemo(
@@ -310,7 +301,8 @@ export function ReaderClient({
         onOpenToc={() => setTocOpen(true)}
         onOpenHighlights={() => setHighlightsOpen(true)}
         onOpenTweaks={() => setTweaksOpen((v) => !v)}
-        onAskToggle={() => setAiOpen((v) => !v)}
+        onAskToggle={onAskToggle}
+        onAskMouseDown={captureSelectedText}
       />
 
       <div className="flex-1 relative overflow-hidden" style={{ display: "flex" }}>
@@ -351,12 +343,11 @@ export function ReaderClient({
               chapterIndex={chapter.index}
               bookTitle={book.title}
               chapterLabel={chapterLabel}
-              seed={aiSeed}
-              seedPayload={aiSeedPayload}
-              onSeedConsumed={() => {
-                setAiSeed(null);
-                setAiSeedPayload(null);
-              }}
+              activeSelection={selectedText}
+              onClearSelection={clearSelection}
+              seed={null}
+              seedPayload={null}
+              onSeedConsumed={() => {}}
               onClose={() => setAiOpen(false)}
             />
           </div>
@@ -365,7 +356,8 @@ export function ReaderClient({
         {isPill && !aiOpen && (
           <button
             type="button"
-            onClick={() => setAiOpen(true)}
+            onMouseDown={captureSelectedText}
+            onClick={onAskToggle}
             className="absolute flex items-center gap-2"
             style={{
               right: 24,
@@ -407,18 +399,15 @@ export function ReaderClient({
               chapterIndex={chapter.index}
               bookTitle={book.title}
               chapterLabel={chapterLabel}
-              seed={aiSeed}
-              seedPayload={aiSeedPayload}
-              onSeedConsumed={() => {
-                setAiSeed(null);
-                setAiSeedPayload(null);
-              }}
+              activeSelection={selectedText}
+              onClearSelection={clearSelection}
+              seed={null}
+              seedPayload={null}
+              onSeedConsumed={() => {}}
               onClose={() => setAiOpen(false)}
             />
           </div>
         )}
-
-        {/* {sel && <SelectionMenu x={sel.x} y={sel.y} onAction={onSelectionAction} />} */}
       </div>
 
       <ReaderBottomBar

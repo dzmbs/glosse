@@ -1,0 +1,11 @@
+{
+  "book_id": "dracula",
+  "title": "Dracula",
+  "authors": [
+    "Bram Stoker"
+  ],
+  "chapters": 33,
+  "source_file": "glosse_upload_jc33ywuy.epub",
+  "processed_at": "2026-04-18T15:25:25.139739",
+  "default_surface": "novel"
+}

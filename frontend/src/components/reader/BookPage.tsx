@@ -17,6 +17,8 @@
  * annotations that open a popover.
  */
 
+import { memo, useMemo } from "react";
+
 import type { ModeSpec } from "@/lib/modes";
 
 type Props = {
@@ -30,7 +32,7 @@ type Props = {
   mode: ModeSpec;
 };
 
-export function BookPage({
+function BookPageImpl({
   html,
   sectionIndex,
   sectionsTotal,
@@ -38,6 +40,10 @@ export function BookPage({
   sectionTitle,
   mode,
 }: Props) {
+  // Stable reference so React's dangerouslySetInnerHTML diff can't trip on
+  // a fresh object literal and re-apply innerHTML (which would clear any
+  // active text selection inside the article).
+  const htmlProps = useMemo(() => ({ __html: html }), [html]);
   return (
     <div
       className="flex-1 min-w-0 overflow-auto reader-scroll"
@@ -112,9 +118,13 @@ export function BookPage({
         <article
           className={"chapter-html" + (mode.dropcap ? " dropcap" : "")}
           // eslint-disable-next-line react/no-danger -- HTML is sanitised at ingest time.
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={htmlProps}
         />
       </div>
     </div>
   );
 }
+
+// Memoised so selection-state churn on the parent doesn't re-render the
+// chapter HTML and blow away the user's live text selection.
+export const BookPage = memo(BookPageImpl);

@@ -352,7 +352,8 @@ html, body {
   border-radius: 12px;
   padding: 5px;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3), 0 4px 10px rgba(0, 0, 0, 0.2);
-  transform: translate(-50%, -100%) translateY(-8px);
+  transform: translate(-50%, -100%) translateY(-12px);
+  pointer-events: none;
 }
 .sel-btn {
   display: inline-flex;
@@ -368,6 +369,7 @@ html, body {
   border-radius: 7px;
   cursor: pointer;
   transition: background 0.12s;
+  pointer-events: auto;
 }
 .sel-btn:hover { background: rgba(255, 255, 255, 0.08); }
 .sel-sep {

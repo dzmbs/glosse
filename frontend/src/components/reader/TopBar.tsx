@@ -25,6 +25,7 @@ export function ReaderTopBar({
   onOpenHighlights,
   onOpenTweaks,
   onAskToggle,
+  onAskMouseDown,
   onPencil,
 }: {
   bookTitle: string;
@@ -36,6 +37,7 @@ export function ReaderTopBar({
   onOpenHighlights: () => void;
   onOpenTweaks: () => void;
   onAskToggle: () => void;
+  onAskMouseDown?: () => void;
   onPencil?: () => void;
 }) {
   const { tweaks, setTweaks } = useTweaks();
@@ -104,7 +106,13 @@ export function ReaderTopBar({
         <Icon.highlight size={18} />
       </button>
 
-      <button type="button" className="ai-btn" onClick={onAskToggle} title="Ask AI">
+      <button
+        type="button"
+        className="ai-btn"
+        onMouseDown={onAskMouseDown}
+        onClick={onAskToggle}
+        title="Ask AI"
+      >
         <Icon.sparkle size={15} />
         <span>Ask</span>
       </button>
