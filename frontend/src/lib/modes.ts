@@ -96,9 +96,9 @@ export const SERIF_OPTIONS: Array<{ id: SerifId; name: string; stack: string }> 
 export type MarginId = "tight" | "normal" | "wide";
 
 export const MARGIN_OPTIONS: Array<{ id: MarginId; name: string; pad: number }> = [
-  { id: "tight", name: "Tight", pad: 60 },
-  { id: "normal", name: "Normal", pad: 96 },
-  { id: "wide", name: "Wide", pad: 140 },
+  { id: "tight", name: "Tight", pad: 48 },
+  { id: "normal", name: "Normal", pad: 72 },
+  { id: "wide", name: "Wide", pad: 112 },
 ];
 
 export type AIStyleId = "panel" | "pill";

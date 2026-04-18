@@ -2,22 +2,23 @@
 
 /**
  * ReaderClient — the client-side glue that owns all interactive state for
- * a single chapter view. Mounted by the Server Component at
- * app/read/[bookId]/[chapter]/page.tsx with prefetched data.
+ * the reader. The Server Component at app/read/[bookId]/[chapter]/page.tsx
+ * hands us the initial book + chapter; every subsequent chapter swap
+ * happens in-place through client-side fetches so prev/next/TOC can
+ * animate with the View Transitions API instead of full-page reloads.
  *
- * State:
+ * What it owns:
+ *   - the currently-displayed chapter (state, not props)
  *   - open drawers (TOC, Highlights, Tweaks)
  *   - AI panel open/closed and seed action
  *   - floating selection menu position + text
  */
 
+import { flushSync } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import type { AISeed } from "@/components/ai/AIPanel";
 import { AIPanel } from "@/components/ai/AIPanel";
-import type { QuickActionId } from "@/components/ai/QuickActions";
-import { Drawer as _Drawer } from "@/components/drawers/Drawer";
 import { HighlightsDrawer } from "@/components/drawers/HighlightsDrawer";
 import { TOCDrawer } from "@/components/drawers/TOCDrawer";
 import { TweaksPanel } from "@/components/drawers/TweaksPanel";
@@ -26,23 +27,33 @@ import { ReaderBottomBar } from "@/components/reader/BottomBar";
 import { SelectionMenu, type SelectionAction } from "@/components/reader/SelectionMenu";
 import { ReaderTopBar } from "@/components/reader/TopBar";
 import { Icon } from "@/components/Icons";
-import type { BookDetail, Chapter } from "@/lib/api";
+import { api, type BookDetail, type Chapter } from "@/lib/api";
 import { useTweaks } from "@/lib/tweaks";
-
-// Suppress unused import warning without shipping an unused side-effect.
-void _Drawer;
 
 const WORDS_PER_MINUTE = 240;
 
+type SwapDirection = "forward" | "back";
+
+type StartViewTransition = (cb: () => void | Promise<void>) => unknown;
+
+/** Narrow browser type for the View Transitions API without polyfill drama. */
+function getStartViewTransition(): StartViewTransition | null {
+  if (typeof document === "undefined") return null;
+  const d = document as Document & { startViewTransition?: StartViewTransition };
+  return typeof d.startViewTransition === "function" ? d.startViewTransition.bind(d) : null;
+}
+
 export function ReaderClient({
   book,
-  chapter,
+  chapter: initialChapter,
 }: {
   book: BookDetail;
   chapter: Chapter;
 }) {
   const { tweaks, mode } = useTweaks();
-  const router = useRouter();
+
+  const [chapter, setChapter] = useState<Chapter>(initialChapter);
+  const [navPending, setNavPending] = useState(false);
 
   const [aiOpen, setAiOpen] = useState(true);
   const [tocOpen, setTocOpen] = useState(false);
@@ -54,18 +65,76 @@ export function ReaderClient({
 
   const [sel, setSel] = useState<{ x: number; y: number; text: string } | null>(null);
   const mainRef = useRef<HTMLDivElement>(null);
+  const articleWrapRef = useRef<HTMLDivElement>(null);
 
-  // Prefetch neighbours so next/previous feels instant.
+  // -- Chapter navigation (client-side, animated) -----------------------
+
+  /**
+   * Swap the displayed chapter with a view-transition animation. Updates
+   * the URL with `history.pushState` so back/forward still work. Keeps
+   * the component mounted — no SSR round-trip.
+   */
+  const navigateChapter = useCallback(
+    async (nextIndex: number) => {
+      if (navPending || nextIndex === chapter.index) return;
+      if (nextIndex < 0 || nextIndex >= chapter.chapters_total) return;
+
+      setNavPending(true);
+      const direction: SwapDirection = nextIndex > chapter.index ? "forward" : "back";
+
+      // Disarm the AI panel's stale selection context before we swap.
+      setSel(null);
+      window.getSelection()?.removeAllRanges();
+
+      try {
+        const nextChapter = await api.chapter(book.id, nextIndex);
+
+        // Tell globals.css which direction to slide.
+        document.documentElement.dataset.readerDirection = direction;
+
+        const start = getStartViewTransition();
+        if (start) {
+          // Keep React in sync before the new snapshot is captured.
+          start(() => {
+            flushSync(() => setChapter(nextChapter));
+          });
+        } else {
+          setChapter(nextChapter);
+        }
+
+        window.history.pushState(
+          { bookId: book.id, chapterIndex: nextIndex },
+          "",
+          `/read/${book.id}/${nextIndex}`,
+        );
+      } finally {
+        setNavPending(false);
+      }
+    },
+    [book.id, chapter.chapters_total, chapter.index, navPending],
+  );
+
+  // -- Browser back/forward --------------------------------------------
+
   useEffect(() => {
-    if (chapter.next_index !== null) {
-      router.prefetch(`/read/${book.id}/${chapter.next_index}`);
-    }
-    if (chapter.prev_index !== null) {
-      router.prefetch(`/read/${book.id}/${chapter.prev_index}`);
-    }
-  }, [book.id, chapter.prev_index, chapter.next_index, router]);
+    const onPopState = (e: PopStateEvent) => {
+      const s = e.state as { bookId?: string; chapterIndex?: number } | null;
+      if (s && s.bookId === book.id && typeof s.chapterIndex === "number") {
+        void navigateChapter(s.chapterIndex);
+        return;
+      }
+      // Fallback: pull the chapter index out of the URL itself.
+      const match = window.location.pathname.match(/^\/read\/([^/]+)\/(\d+)/);
+      if (match && match[1] === book.id) {
+        void navigateChapter(Number(match[2]));
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [book.id, navigateChapter]);
 
-  // Reading-time estimate: count words in `chapter.text` the backend sent.
+  // -- Reading-time estimate -------------------------------------------
+
   const minutesLeft = useMemo(() => {
     if (!chapter.text) return null;
     const words = chapter.text.split(/\s+/).filter(Boolean).length;
@@ -74,25 +143,23 @@ export function ReaderClient({
 
   const progressPct = (chapter.index + 1) / chapter.chapters_total;
 
-  // -- Selection tracking ------------------------------------------------
+  // -- Selection tracking ----------------------------------------------
 
   useEffect(() => {
     const onSelectionChange = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || !mainRef.current) {
+      const selObj = window.getSelection();
+      if (!selObj || selObj.isCollapsed || !mainRef.current) {
         setSel(null);
         return;
       }
-      const text = sel.toString().trim();
+      const text = selObj.toString().trim();
       if (!text) {
         setSel(null);
         return;
       }
-      // Only arm the menu when the selection originates in the chapter.
-      if (!mainRef.current.contains(sel.anchorNode)) {
-        return;
-      }
-      const range = sel.getRangeAt(0);
+      if (!mainRef.current.contains(selObj.anchorNode)) return;
+
+      const range = selObj.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return;
       setSel({
@@ -105,7 +172,6 @@ export function ReaderClient({
     return () => document.removeEventListener("selectionchange", onSelectionChange);
   }, []);
 
-  // Dismiss the selection menu on plain clicks.
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
@@ -116,28 +182,96 @@ export function ReaderClient({
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
-  const onSelectionAction = useCallback((id: SelectionAction) => {
-    if (!sel) return;
-    if (id === "ask" || id === "explain") {
-      setAiOpen(true);
-      setAiSeedPayload(sel.text);
-      setAiSeed("selection-ask");
-    } else if (id === "define") {
-      setAiOpen(true);
-      setAiSeedPayload(sel.text);
-      setAiSeed("selection-ask");
-    }
-    // highlight / note are LATER — see SelectionMenu.
-    setSel(null);
-    window.getSelection()?.removeAllRanges();
-  }, [sel]);
+  // -- Intercept links inside chapter HTML -----------------------------
 
-  // Context label for the AI panel.
+  /**
+   * EPUB chapter HTML frequently contains internal links that point to
+   * another file in the book (e.g. `<a href="345-h-21.htm.xhtml#chap19">`).
+   * Left alone these cause a full-page navigation to a garbage URL like
+   * `/read/dracula/345-h-21.htm.xhtml#chap19`, which the Server Component
+   * dutifully tries to parse as a chapter index and throws 404.
+   *
+   * We catch clicks on anchors inside `.chapter-html` and either:
+   *   - map the target file to a spine index and navigate via navigateChapter
+   *   - scroll to an intra-chapter anchor if the href is `#foo`
+   *   - swallow the click otherwise so the reader stays stable
+   */
+  useEffect(() => {
+    const root = articleWrapRef.current;
+    if (!root) return;
+
+    const hrefToSpine = new Map<string, number>();
+    for (const s of book.spine) hrefToSpine.set(s.href, s.index);
+
+    const onClick = (e: MouseEvent) => {
+      const target = (e.target as HTMLElement).closest("a");
+      if (!target) return;
+      if (!root.contains(target)) return;
+
+      const raw = target.getAttribute("href") ?? "";
+      if (!raw) return;
+
+      // Let new-tab clicks (cmd/ctrl/shift/middle) behave normally.
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+
+      e.preventDefault();
+
+      // Pure anchor — scroll within the current chapter.
+      if (raw.startsWith("#")) {
+        const el = root.querySelector<HTMLElement>(`#${CSS.escape(raw.slice(1))}`)
+          ?? root.querySelector<HTMLElement>(`[name="${CSS.escape(raw.slice(1))}"]`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
+      // External http(s) — open in a new tab.
+      if (/^https?:\/\//i.test(raw)) {
+        window.open(raw, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      // Cross-chapter file link. Strip the fragment, see if the file maps
+      // to a spine entry, and navigate there if so.
+      const [filePart] = raw.split("#");
+      const spineIdx = hrefToSpine.get(filePart);
+      if (typeof spineIdx === "number" && spineIdx !== chapter.index) {
+        void navigateChapter(spineIdx);
+      }
+      // Otherwise: swallow. Better a dead click than a crash.
+    };
+
+    root.addEventListener("click", onClick);
+    return () => root.removeEventListener("click", onClick);
+  }, [book.spine, chapter.index, navigateChapter]);
+
+  // -- Selection → AI seed --------------------------------------------
+
+  const onSelectionAction = useCallback(
+    (id: SelectionAction) => {
+      if (!sel) return;
+      if (id === "ask" || id === "explain" || id === "define") {
+        setAiOpen(true);
+        setAiSeedPayload(sel.text);
+        setAiSeed("selection-ask");
+      }
+      // highlight / note: LATER — no storage backend yet.
+      setSel(null);
+      window.getSelection()?.removeAllRanges();
+    },
+    [sel],
+  );
+
   const chapterLabel = `Chapter ${chapter.index + 1}`;
-
-  // -- Render ------------------------------------------------------------
-
   const isPill = tweaks.aiStyle === "pill";
+
+  const prevHandler = useCallback(() => {
+    if (chapter.prev_index !== null) void navigateChapter(chapter.prev_index);
+  }, [chapter.prev_index, navigateChapter]);
+  const nextHandler = useCallback(() => {
+    if (chapter.next_index !== null) void navigateChapter(chapter.next_index);
+  }, [chapter.next_index, navigateChapter]);
+
+  // -- Render ----------------------------------------------------------
 
   return (
     <div
@@ -155,10 +289,7 @@ export function ReaderClient({
         onAskToggle={() => setAiOpen((v) => !v)}
       />
 
-      <div
-        className="flex-1 relative overflow-hidden"
-        style={{ display: "flex" }}
-      >
+      <div className="flex-1 relative overflow-hidden" style={{ display: "flex" }}>
         <div
           ref={mainRef}
           className="flex-1 flex"
@@ -168,14 +299,17 @@ export function ReaderClient({
             transition: "margin-right 0.35s cubic-bezier(0.32, 0.72, 0.24, 1), background 0.4s ease",
           }}
         >
-          <BookPage
-            html={chapter.html}
-            chapterIndex={chapter.index}
-            chaptersTotal={chapter.chapters_total}
-            bookTitle={book.title}
-            chapterTitle={chapter.title}
-            mode={mode}
-          />
+          <div ref={articleWrapRef} className="flex-1 flex min-w-0">
+            <BookPage
+              key={chapter.index}
+              html={chapter.html}
+              chapterIndex={chapter.index}
+              chaptersTotal={chapter.chapters_total}
+              bookTitle={book.title}
+              chapterTitle={chapter.title}
+              mode={mode}
+            />
+          </div>
         </div>
 
         {/* Side-panel AI */}
@@ -262,20 +396,16 @@ export function ReaderClient({
           </div>
         )}
 
-        {sel && (
-          <SelectionMenu x={sel.x} y={sel.y} onAction={onSelectionAction} />
-        )}
+        {sel && <SelectionMenu x={sel.x} y={sel.y} onAction={onSelectionAction} />}
       </div>
 
       <ReaderBottomBar
         chapterIndex={chapter.index}
         chaptersTotal={chapter.chapters_total}
-        prevHref={
-          chapter.prev_index !== null ? `/read/${book.id}/${chapter.prev_index}` : null
-        }
-        nextHref={
-          chapter.next_index !== null ? `/read/${book.id}/${chapter.next_index}` : null
-        }
+        canPrev={chapter.prev_index !== null}
+        canNext={chapter.next_index !== null}
+        onPrev={prevHandler}
+        onNext={nextHandler}
         minutesLeft={minutesLeft}
       />
 
@@ -284,37 +414,13 @@ export function ReaderClient({
         onClose={() => setTocOpen(false)}
         book={book}
         currentIndex={chapter.index}
+        onJump={(idx) => {
+          setTocOpen(false);
+          void navigateChapter(idx);
+        }}
       />
-      <HighlightsDrawer
-        open={highlightsOpen}
-        onClose={() => setHighlightsOpen(false)}
-      />
+      <HighlightsDrawer open={highlightsOpen} onClose={() => setHighlightsOpen(false)} />
       <TweaksPanel open={tweaksOpen} onClose={() => setTweaksOpen(false)} />
-
-      {/* Exposed so the AI panel can broadcast a quick-action seed. */}
-      <QuickActionSeedBridge setSeed={setAiSeed} />
     </div>
   );
-}
-
-/**
- * Tiny helper so callers that don't have direct access to ReaderClient
- * state can still push a quick-action seed into the AI panel. Not used
- * externally yet — reserved for future "explain this margin note" flows.
- */
-function QuickActionSeedBridge({
-  setSeed,
-}: {
-  setSeed: (s: QuickActionId | "selection-ask" | null) => void;
-}) {
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const ev = e as CustomEvent<QuickActionId>;
-      setSeed(ev.detail);
-    };
-    window.addEventListener("glosse:ai-seed", handler as EventListener);
-    return () =>
-      window.removeEventListener("glosse:ai-seed", handler as EventListener);
-  }, [setSeed]);
-  return null;
 }
