@@ -53,6 +53,8 @@ export function ReaderClient({
 
   const [chapter, setChapter] = useState<Chapter>(initialChapter);
   const [navPending, setNavPending] = useState(false);
+  const [pageTurn, setPageTurn] = useState<SwapDirection | null>(null);
+  const pageTurnTimer = useRef<number | null>(null);
 
   // AI is off by default. The user opens it explicitly via the Ask
   // button in the top bar or the "Ask about this page" floating pill —
@@ -105,6 +107,14 @@ export function ReaderClient({
       try {
         const nextChapter = await api.chapter(book.id, nextIndex);
         document.documentElement.dataset.readerDirection = direction;
+        setPageTurn(direction);
+        if (pageTurnTimer.current !== null) {
+          window.clearTimeout(pageTurnTimer.current);
+        }
+        pageTurnTimer.current = window.setTimeout(() => {
+          setPageTurn(null);
+          pageTurnTimer.current = null;
+        }, 420);
 
         const start = getStartViewTransition();
         if (start) {
@@ -126,6 +136,14 @@ export function ReaderClient({
     },
     [book.id, chapter.chapters_total, chapter.index, navPending],
   );
+
+  useEffect(() => {
+    return () => {
+      if (pageTurnTimer.current !== null) {
+        window.clearTimeout(pageTurnTimer.current);
+      }
+    };
+  }, []);
 
   // -- Browser back/forward --------------------------------------------
 
@@ -327,6 +345,13 @@ export function ReaderClient({
             />
           </div>
         </div>
+
+        {pageTurn && (
+          <div
+            className={"reader-page-turn reader-page-turn--" + pageTurn}
+            aria-hidden="true"
+          />
+        )}
 
         {!isPill && (
           <div

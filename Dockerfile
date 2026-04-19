@@ -8,9 +8,10 @@ COPY pyproject.toml .
 COPY README.md .
 COPY glosse/ glosse/
 COPY data/ data/
+COPY start.py start.py
 
 RUN uv pip install --system .
 
 EXPOSE 8123
 
-CMD ["sh", "-c", "uvicorn glosse.server.app:app --host 0.0.0.0 --port ${PORT:-8123}"]
+CMD ["python", "start.py"]

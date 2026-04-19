@@ -191,6 +191,27 @@ html, body {
   color: var(--ink-soft);
 }
 
+.reader-scroll--novel {
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.10) 0%, rgba(0, 0, 0, 0) 6%, rgba(0, 0, 0, 0) 94%, rgba(0, 0, 0, 0.10) 100%),
+    linear-gradient(180deg, rgba(255, 252, 244, 0.95), rgba(246, 236, 218, 0.95));
+}
+
+/* Novel spread: single reading column with book-like paper framing.
+ * We do NOT use CSS columns — that splits one chapter into two columns
+ * which looks like a magazine layout, not a book page. */
+.reader-column--spread {
+  position: relative;
+  isolation: isolate;
+  border-radius: 2px;
+  box-shadow:
+    -1px 0 0 rgba(0, 0, 0, 0.08),
+    1px 0 0 rgba(0, 0, 0, 0.08),
+    0 2px 16px rgba(0, 0, 0, 0.08),
+    0 8px 40px rgba(0, 0, 0, 0.06);
+}
+
+
 /* -- Drop cap on the first paragraph of a chapter --------------------- */
 .chapter-html.dropcap > p:first-of-type::first-letter {
   font-family: var(--heading-stack);
@@ -394,50 +415,109 @@ html, body {
  * ReaderClient sets `documentElement.dataset.readerDirection` to
  * "forward" or "back" right before calling document.startViewTransition().
  * The browser snapshots the current chapter as the "old" image and the
- * new chapter as the "new" image; these rules slide them in the right
- * direction.
+ * new chapter as the "new" image; these rules produce a clean horizontal
+ * slide that reads as turning pages without conflicting 3D effects.
+ *
+ * The `.reader-page-turn` overlay is kept as a subtle paper-edge flash
+ * that complements rather than duplicates the transition.
  *
  * Gracefully degrades — in browsers without View Transitions, ReaderClient
  * just swaps state and no animation plays. */
 
-::view-transition-old(chapter),
-::view-transition-new(chapter) {
-  animation-duration: 320ms;
-  animation-timing-function: cubic-bezier(0.32, 0.72, 0.24, 1);
-  animation-fill-mode: both;
+.reader-page-turn {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
 }
 
-/* Forward: old page slides left off-screen, new page slides in from the right. */
+/* Narrow paper-edge streak that sweeps across on chapter change */
+.reader-page-turn--forward::after,
+.reader-page-turn--back::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 80px;
+  background: linear-gradient(90deg,
+    rgba(255, 251, 241, 0) 0%,
+    rgba(255, 251, 241, 0.55) 40%,
+    rgba(239, 228, 205, 0.85) 60%,
+    rgba(255, 251, 241, 0) 100%);
+}
+
+.reader-page-turn--forward::after {
+  animation: pageFlashForward 420ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.reader-page-turn--back::after {
+  animation: pageFlashBack 420ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+::view-transition-old(chapter),
+::view-transition-new(chapter) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-fill-mode: both;
+  will-change: transform, opacity;
+}
+
+/* Forward: old page slides left out, new page slides in from right */
 html[data-reader-direction="forward"]::view-transition-old(chapter) {
   animation-name: slideOutLeft;
 }
 html[data-reader-direction="forward"]::view-transition-new(chapter) {
-  animation-name: slideInFromRight;
+  animation-name: slideInRight;
 }
 
-/* Back: reverse. */
+/* Back: old page slides right out, new page slides in from left */
 html[data-reader-direction="back"]::view-transition-old(chapter) {
   animation-name: slideOutRight;
 }
 html[data-reader-direction="back"]::view-transition-new(chapter) {
-  animation-name: slideInFromLeft;
+  animation-name: slideInLeft;
 }
 
 @keyframes slideOutLeft {
   from { transform: translateX(0); opacity: 1; }
-  to   { transform: translateX(-8%); opacity: 0; }
+  to   { transform: translateX(-6%); opacity: 0; }
 }
-@keyframes slideInFromRight {
-  from { transform: translateX(8%); opacity: 0; }
+
+@keyframes slideInRight {
+  from { transform: translateX(6%); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
 }
+
 @keyframes slideOutRight {
   from { transform: translateX(0); opacity: 1; }
-  to   { transform: translateX(8%); opacity: 0; }
+  to   { transform: translateX(6%); opacity: 0; }
 }
-@keyframes slideInFromLeft {
-  from { transform: translateX(-8%); opacity: 0; }
+
+@keyframes slideInLeft {
+  from { transform: translateX(-6%); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes pageFlashForward {
+  0%   { left: -80px; opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { left: calc(100% + 80px); opacity: 0; }
+}
+
+@keyframes pageFlashBack {
+  0%   { right: -80px; opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { right: calc(100% + 80px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(chapter),
+  ::view-transition-new(chapter),
+  .reader-page-turn::after {
+    animation-duration: 1ms !important;
+  }
 }
 
 /* -- Keyframes -------------------------------------------------------- */

@@ -44,17 +44,19 @@ function BookPageImpl({
   // a fresh object literal and re-apply innerHTML (which would clear any
   // active text selection inside the article).
   const htmlProps = useMemo(() => ({ __html: html }), [html]);
+  const isNovelSpread = mode.id === "novel";
+
   return (
     <div
-      className="flex-1 min-w-0 overflow-auto reader-scroll"
+      className={"flex-1 min-w-0 overflow-auto reader-scroll" + (isNovelSpread ? " reader-scroll--novel" : "")}
       style={{ background: "var(--paper)" }}
     >
       <div
-        className="mx-auto reader-column"
+        className={"mx-auto reader-column" + (isNovelSpread ? " reader-column--spread" : "")}
         style={{
           width: "100%",
-          maxWidth: 760,
-          padding: "64px var(--page-pad) 140px",
+          maxWidth: isNovelSpread ? 1180 : 760,
+          padding: isNovelSpread ? "56px var(--page-pad) 140px" : "64px var(--page-pad) 140px",
           boxSizing: "border-box",
           // Tag for the View Transitions API — lets globals.css slide the
           // chapter in/out when the parent calls startViewTransition().
@@ -116,7 +118,11 @@ function BookPageImpl({
         )}
 
         <article
-          className={"chapter-html" + (mode.dropcap ? " dropcap" : "")}
+          className={
+            "chapter-html" +
+            (mode.dropcap ? " dropcap" : "") +
+            (isNovelSpread ? " chapter-html--spread" : "")
+          }
           // eslint-disable-next-line react/no-danger -- HTML is sanitised at ingest time.
           dangerouslySetInnerHTML={htmlProps}
         />

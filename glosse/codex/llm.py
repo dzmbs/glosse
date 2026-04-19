@@ -21,7 +21,7 @@ def get_chat_client() -> tuple[OpenAI, str]:
     """Return (client, model_id). Prefer OpenAI; fall back to OpenRouter."""
     if os.getenv("OPENAI_API_KEY"):
         return OpenAI(), OPENAI_MODEL
-    if os.getenv("OPENROUTER_API_KEY"):
+    if os.getenv("/"):
         return _openrouter_client(), OPENROUTER_MODEL
     raise RuntimeError(
         "No LLM key configured. Export OPENAI_API_KEY or OPENROUTER_API_KEY."
