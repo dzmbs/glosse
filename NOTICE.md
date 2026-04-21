@@ -15,10 +15,10 @@ Each library keeps its own copyright and license notice in its source tree.
 
 ## Local patches to vendored code
 
-- `vendor/foliate-js/pdf.js` line 1: `vendor/pdfjs/${path}` → `./vendor/pdfjs/${path}`.
-  Upstream works in plain browsers but Vite's `import-glob` plugin requires
-  relative globs to start with `./` or `/`. If you ever run
-  `git submodule update --remote` on foliate-js, re-apply this one-character
-  change.
+- `patches/foliate-js-pdf-vite.patch` — prefixes `./` to the `new URL()`
+  template in `vendor/foliate-js/pdf.js`. Upstream works in plain browsers
+  but Vite's `import-glob` plugin requires relative globs to start with
+  `./` or `/`. Applied automatically by `scripts/apply-patches.mjs` on
+  `pnpm install` (idempotent — safe to re-run after submodule updates).
 
 glosse's own source code is MIT-licensed.
