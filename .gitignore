@@ -7,3 +7,7 @@ dist
 *.tsbuildinfo
 vite.config.d.ts
 vite.config.js
+
+# Local-only research + design references, not part of the shipped source.
+ai-references/
+glosse Desk.html
