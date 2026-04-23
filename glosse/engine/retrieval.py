@@ -51,6 +51,21 @@ def _cosine(a: List[float], b: List[float]) -> float:
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _STOP_WORDS = {"what", "is", "the", "a", "an", "to", "of", "in", "for", "on", "with", "as", "by", "at", "and", "or", "how", "why", "who", "where", "when", "does", "did", "do", "are", "was", "were", "it", "this", "that", "these", "those", "be", "can", "could", "would", "should"}
+_PRIOR_CONTEXT_SIGNALS = (
+    "earlier",
+    "before",
+    "previous",
+    "prior",
+    "so far",
+    "up to now",
+    "until now",
+    "recap",
+    "context",
+    "introduced",
+    "again",
+    "remind",
+    "what do we know",
+)
 
 def _lexical_score(query: str, text: str) -> float:
     """Crude overlap score used only when embeddings are unavailable."""
@@ -66,6 +81,42 @@ def _lexical_score(query: str, text: str) -> float:
         return 0.0
     hits = sum(1 for t in t_terms if t in q_terms)
     return hits / math.sqrt(len(t_terms))
+
+
+def _rank_chunks(query: str, chunks: List[Chunk]) -> List[Chunk]:
+    if not chunks:
+        return []
+
+    have_embeddings = any(c.embedding for c in chunks)
+    if not have_embeddings:
+        scored = [(c, _lexical_score(query, c.text)) for c in chunks]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [c for c, _score in scored]
+
+    # Prefer semantic ranking if we have embeddings on both sides.
+    try:
+        from glosse.engine.embeddings import embed_query  # deferred import
+
+        q_vec = embed_query(query)
+    except Exception:
+        q_vec = None
+
+    if q_vec is not None:
+        scored = [
+            (c, _cosine(q_vec, c.embedding or []))
+            for c in chunks
+        ]
+    else:
+        scored = [(c, _lexical_score(query, c.text)) for c in chunks]
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [c for c, _score in scored]
+
+
+def wants_prior_context(query: str) -> bool:
+    """Return true when the user's wording invites earlier-chapter context."""
+    lower = query.lower()
+    return any(signal in lower for signal in _PRIOR_CONTEXT_SIGNALS)
 
 
 # --- Public API -----------------------------------------------------------
@@ -90,23 +141,44 @@ def retrieve_safe_chunks(
     if not safe:
         return []
 
-    # Prefer semantic ranking if we have embeddings on both sides.
-    try:
-        from glosse.engine.embeddings import embed_query  # deferred import
+    return _rank_chunks(query, safe)[:k]
 
-        q_vec = embed_query(query)
-        have_embeddings = any(c.embedding for c in safe)
-    except NotImplementedError:
-        q_vec = None
-        have_embeddings = False
 
-    if q_vec is not None and have_embeddings:
-        scored = [
-            (c, _cosine(q_vec, c.embedding or []))
-            for c in safe
-        ]
-    else:
-        scored = [(c, _lexical_score(query, c.text)) for c in safe]
+def retrieve_chapter_scoped_chunks(
+    book_id: str,
+    progress: int,
+    current_chapter_index: int,
+    query: str,
+    k: int = 6,
+    include_prior: bool | None = None,
+) -> List[Chunk]:
+    """
+    Retrieve chunks for the guide panel's current reading window.
 
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return [c for c, _score in scored[:k]]
+    The displayed chapter is the primary scope. Prior chapters are included
+    only when the query explicitly asks for continuity/context, and future
+    chapters relative to either progress or the displayed chapter are excluded.
+    """
+    all_chunks = load_chunks(book_id)
+    boundary = min(progress, current_chapter_index)
+    safe = [c for c in all_chunks if c.chapter_index <= boundary]
+    if not safe:
+        return []
+
+    current = [c for c in safe if c.chapter_index == current_chapter_index]
+    if include_prior is None:
+        include_prior = wants_prior_context(query)
+
+    if not include_prior:
+        return _rank_chunks(query, current)[:k]
+
+    prior = [c for c in safe if c.chapter_index < current_chapter_index]
+    ranked_current = _rank_chunks(query, current)
+    ranked_prior = _rank_chunks(query, prior)
+    current_quota = min(len(ranked_current), max(1, k // 2))
+    out = ranked_current[:current_quota]
+    out.extend(ranked_prior[: max(0, k - len(out))])
+    if len(out) < k:
+        seen = {c.chunk_id for c in out}
+        out.extend(c for c in ranked_current[current_quota:] if c.chunk_id not in seen)
+    return out[:k]

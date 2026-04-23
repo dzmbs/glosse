@@ -164,6 +164,10 @@ def list_books() -> List[dict]:
             except (OSError, ValueError, json.JSONDecodeError):
                 logger.warning("list_books: malformed meta.json for '%s' — skipping", book_id)
                 continue
+            entry.setdefault("book_id", book_id)
+            entry.setdefault("title", book_id)
+            entry.setdefault("authors", [])
+            entry.setdefault("chapters", 0)
         else:
             # Fall back to loading the pickle (slow path — should not happen)
             book = load_book(book_id)
@@ -175,7 +179,12 @@ def list_books() -> List[dict]:
                 "authors": book.metadata.authors,
                 "chapters": len(book.spine),
             }
-        entry["has_chunks"] = os.path.exists(os.path.join(book_dir(book_id), "chunks.pkl"))
+        chunks_path = os.path.join(book_dir(book_id), "chunks.pkl")
+        has_chunks = os.path.exists(chunks_path)
+        entry["has_chunks"] = has_chunks
+        entry.setdefault("ingest_status", "ready")
+        entry.setdefault("index_status", "ready" if has_chunks else "not_started")
+        entry.setdefault("chunk_count", None)
         entry["in_inbox"] = book_id in inbox_ids
         out.append(entry)
     return out
@@ -183,6 +192,7 @@ def list_books() -> List[dict]:
 
 def scan_and_ingest_inbox() -> None:
     """Scan INBOX_DIR for EPUBs; ingest any not already in BOOKS_ROOT."""
+    from glosse.engine.indexing import index_book  # local import avoids circular imports
     from glosse.engine.ingest import ingest  # local import — avoids circular at module level
 
     os.makedirs(INBOX_DIR, exist_ok=True)
@@ -196,10 +206,23 @@ def scan_and_ingest_inbox() -> None:
         epub_path = os.path.join(INBOX_DIR, fname)
         try:
             target = ensure_book_dir(book_id)
+            update_meta(
+                book_id,
+                {
+                    "ingest_status": "ingesting",
+                    "ingest_error": None,
+                    "index_status": "not_started",
+                    "index_error": None,
+                },
+            )
             book = ingest(epub_path, target)
             save_book(book, book_id)
+            update_meta(book_id, {"ingest_status": "ready", "ingest_error": None})
+            index_book(book, book_id)
             logger.info("inbox: ingested %s -> %s", fname, book_id)
         except Exception as exc:
+            if read_meta(book_id).get("ingest_status") != "ready":
+                update_meta(book_id, {"ingest_status": "failed", "ingest_error": str(exc)})
             logger.error("inbox: failed to ingest %s: %s", fname, exc)
 
 

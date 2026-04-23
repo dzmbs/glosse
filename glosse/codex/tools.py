@@ -45,6 +45,32 @@ def retrieve_safe_chunks(
     return [_chunk_to_dict(c) for c in chunks]
 
 
+def retrieve_chapter_scoped_chunks(
+    book_id: str,
+    progress: int,
+    current_chapter_index: int,
+    query: str,
+    k: int = 6,
+) -> List[dict]:
+    """
+    Return current-chapter passages by default, with prior chapters included
+    only when the query asks for earlier context. Never returns future text.
+    """
+    try:
+        requested_k = int(k)
+    except (TypeError, ValueError):
+        requested_k = 6
+    safe_k = max(1, min(requested_k, MAX_RETRIEVAL_K))
+    chunks = retrieval.retrieve_chapter_scoped_chunks(
+        book_id=book_id,
+        progress=progress,
+        current_chapter_index=current_chapter_index,
+        query=query,
+        k=safe_k,
+    )
+    return [_chunk_to_dict(c) for c in chunks]
+
+
 # --- Tool: get_current_passage -------------------------------------------
 
 
@@ -115,10 +141,10 @@ TOOL_SCHEMAS: List[dict] = [
     {
         "name": "retrieve_safe_chunks",
         "description": (
-            "Retrieve passages from the book that are relevant to the query. "
+            "Retrieve passages from the current displayed chapter, with "
+            "earlier chapters included only for continuity/context questions. "
             "Results never include chapters past the user's current reading "
-            "position. Always call this before making claims about what the "
-            "book says."
+            "position. Always call this before making claims about what the book says."
         ),
         "parameters": {
             "type": "object",

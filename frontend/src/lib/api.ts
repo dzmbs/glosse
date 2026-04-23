@@ -11,6 +11,8 @@
  */
 
 export type SurfaceId = "novel" | "study" | "article" | "focus";
+export type IngestStatus = "ingesting" | "ready" | "failed";
+export type IndexStatus = "not_started" | "chunking" | "embedding" | "ready" | "failed";
 
 export type BookSummary = {
   id: string;
@@ -20,6 +22,14 @@ export type BookSummary = {
   progress: number;
   /** True once `glosse index <id>` has produced chunks.pkl. */
   has_chunks?: boolean;
+  ingest_status?: IngestStatus;
+  index_status?: IndexStatus;
+  chunk_count?: number | null;
+  ingest_error?: string | null;
+  index_error?: string | null;
+  embedding_status?: string | null;
+  embedding_model?: string | null;
+  embedding_error?: string | null;
   /** True when the source EPUB is still sitting in `data/inbox/`
    *  (picked up on server boot via scan_and_ingest_inbox). */
   in_inbox?: boolean;
@@ -57,6 +67,14 @@ export type BookDetail = {
   toc: TOCNode[];
   progress: number;
   default_surface?: SurfaceId | null;
+  ingest_status?: IngestStatus;
+  index_status?: IndexStatus;
+  chunk_count?: number | null;
+  ingest_error?: string | null;
+  index_error?: string | null;
+  embedding_status?: string | null;
+  embedding_model?: string | null;
+  embedding_error?: string | null;
 };
 
 export type UploadResponse = {
@@ -65,6 +83,9 @@ export type UploadResponse = {
   authors: string[];
   chapters: number;
   default_surface: SurfaceId;
+  ingest_status?: IngestStatus;
+  index_status?: IndexStatus;
+  chunk_count?: number | null;
 };
 
 export type Chapter = {

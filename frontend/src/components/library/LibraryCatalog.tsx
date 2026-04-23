@@ -462,11 +462,9 @@ function BookTile({ book }: { book: BookWithProgress }) {
   const author = book.authors.join(", ");
   const href = `/read/${book.id}/0`;
   const pct = Math.round(book.pct * 100);
-  return (
-    <Link
-      href={href}
-      className="group block transition-transform hover:-translate-y-0.5"
-    >
+  const unavailable = book.ingest_status === "failed";
+  const content = (
+    <>
       <BookCover
         bookId={book.id}
         title={book.title}
@@ -524,8 +522,30 @@ function BookTile({ book }: { book: BookWithProgress }) {
               {book.finished ? "finished" : `${pct}% \u00b7 section ${book.progress + 1}`}
             </div>
           )}
+          <IndexBadge book={book} />
         </div>
       </div>
+    </>
+  );
+
+  if (unavailable) {
+    return (
+      <div
+        className="block opacity-80"
+        aria-disabled="true"
+        title={book.ingest_error ?? "This book could not be ingested."}
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={href}
+      className="group block transition-transform hover:-translate-y-0.5"
+    >
+      {content}
     </Link>
   );
 }
@@ -651,6 +671,7 @@ function ListRow({ book, last }: { book: BookWithProgress; last: boolean }) {
   const author = book.authors.join(", ");
   const href = `/read/${book.id}/0`;
   const pct = Math.round(book.pct * 100);
+  const unavailable = book.ingest_status === "failed";
   const status = book.finished
     ? "finished"
     : book.inProgress
@@ -658,7 +679,11 @@ function ListRow({ book, last }: { book: BookWithProgress; last: boolean }) {
       : "unread";
   return (
     <Link
-      href={href}
+      href={unavailable ? "#" : href}
+      onClick={(e) => {
+        if (unavailable) e.preventDefault();
+      }}
+      aria-disabled={unavailable}
       className="grid items-center transition-colors"
       style={{
         gridTemplateColumns: "minmax(0,3fr) minmax(0,2fr) 140px 120px",
@@ -666,6 +691,8 @@ function ListRow({ book, last }: { book: BookWithProgress; last: boolean }) {
         borderBottom: last ? "none" : "1px solid var(--rule-soft)",
         textDecoration: "none",
         color: "inherit",
+        opacity: unavailable ? 0.8 : 1,
+        cursor: unavailable ? "default" : "pointer",
       }}
     >
       <div
@@ -727,11 +754,36 @@ function ListRow({ book, last }: { book: BookWithProgress; last: boolean }) {
 // -- Status badges / empty states -----------------------------------------
 
 function IndexBadge({ book }: { book: BookWithProgress }) {
-  if (book.has_chunks) {
+  const status = book.index_status ?? (book.has_chunks ? "ready" : "not_started");
+  if (book.ingest_status === "failed" || status === "failed") {
     return (
       <span
         className="uppercase"
-        title="Chunks + embeddings produced. The Guide agent can ground answers in this book."
+        title={book.ingest_error ?? book.index_error ?? "Ingestion or indexing failed."}
+        style={{
+          fontFamily: "var(--inter-stack)",
+          fontSize: 9,
+          letterSpacing: 0.9,
+          fontWeight: 600,
+          color: "#b5472f",
+          border: "1px solid #b5472f",
+          borderRadius: 999,
+          padding: "1px 7px",
+        }}
+      >
+        failed
+      </span>
+    );
+  }
+  if (book.ingest_status === "ingesting" || status === "chunking" || status === "embedding") {
+    return (
+      <span
+        className="uppercase"
+        title={
+          status === "embedding"
+            ? "Embedding chunks. The Guide can fall back to lexical search if needed."
+            : "Preparing the book for grounded Guide answers."
+        }
         style={{
           fontFamily: "var(--inter-stack)",
           fontSize: 9,
@@ -743,7 +795,38 @@ function IndexBadge({ book }: { book: BookWithProgress }) {
           padding: "1px 7px",
         }}
       >
-        indexed
+        processing
+      </span>
+    );
+  }
+  if (status === "ready" || book.has_chunks) {
+    const chunkLabel = typeof book.chunk_count === "number" ? `${book.chunk_count} chunks` : "Chunks";
+    const readyTitle =
+      book.embedding_status === "ready"
+        ? `${chunkLabel} ready with semantic search.`
+        : book.embedding_status === "failed"
+          ? `${chunkLabel} ready with lexical fallback; embedding failed.`
+          : book.embedding_status === "skipped"
+            ? `${chunkLabel} ready with lexical search.`
+            : book.chunk_count
+              ? `${book.chunk_count} chunks ready. The Guide can ground answers in this book.`
+              : "Chunks ready. The Guide can ground answers in this book.";
+    return (
+      <span
+        className="uppercase"
+        title={readyTitle}
+        style={{
+          fontFamily: "var(--inter-stack)",
+          fontSize: 9,
+          letterSpacing: 0.9,
+          fontWeight: 600,
+          color: "var(--accent)",
+          border: "1px solid var(--accent)",
+          borderRadius: 999,
+          padding: "1px 7px",
+        }}
+      >
+        ready
       </span>
     );
   }

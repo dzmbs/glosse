@@ -26,7 +26,7 @@ from glosse.codex.modes import MODES, Mode
 from glosse.codex.tools import (
     TOOL_SCHEMAS,
     get_current_passage,
-    retrieve_safe_chunks,
+    retrieve_chapter_scoped_chunks,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,9 +87,10 @@ def _dispatch_tool(
     progress: int,
 ) -> Any:
     if name == "retrieve_safe_chunks":
-        return retrieve_safe_chunks(
+        return retrieve_chapter_scoped_chunks(
             book_id=book_id,
             progress=progress,
+            current_chapter_index=current_chapter_index,
             query=str(args.get("query", "")),
             k=args.get("k", 6),
         )
@@ -243,9 +244,10 @@ def run_guide(req: GuideRequest) -> GuideResponse:
         # boundary (free Llama supports tool-calling, but this is belt+braces).
         citations = []
         try:
-            safe_chunks = retrieve_safe_chunks(
+            safe_chunks = retrieve_chapter_scoped_chunks(
                 book_id=req.book_id,
                 progress=progress,
+                current_chapter_index=req.chapter_index,
                 query=user_text,
                 k=6,
             )

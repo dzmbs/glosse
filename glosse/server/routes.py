@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from glosse.codex.agent import GuideRequest, run_guide
 from glosse.codex.modes import Mode
 from glosse.engine.html_safety import sanitize_html_fragment
+from glosse.engine.indexing import index_book
 from glosse.engine.ingest import ingest
 from glosse.engine.models import TOCEntry
 from glosse.engine.storage import (
@@ -152,6 +153,26 @@ def _rewrite_image_urls(html: str, book_id: str) -> str:
     return _IMG_REF_RE.sub(replace, sanitized)
 
 
+def _pipeline_status(meta: dict) -> dict:
+    has_chunks = bool(meta.get("has_chunks"))
+    return {
+        "ingest_status": meta.get("ingest_status") or "ready",
+        "index_status": meta.get("index_status") or ("ready" if has_chunks else "not_started"),
+        "chunk_count": meta.get("chunk_count"),
+        "ingest_error": meta.get("ingest_error"),
+        "index_error": meta.get("index_error"),
+        "embedding_status": meta.get("embedding_status"),
+        "embedding_model": meta.get("embedding_model"),
+        "embedding_error": meta.get("embedding_error"),
+    }
+
+
+def _restore_meta_after_cleanup(book_id: str, meta: dict) -> None:
+    """Remove partial ingest files while keeping a readable failed status."""
+    shutil.rmtree(book_dir(book_id), ignore_errors=True)
+    update_meta(book_id, meta)
+
+
 # --- Library + book metadata --------------------------------------------
 
 
@@ -172,6 +193,7 @@ async def api_library():
                 "has_chunks": meta.get("has_chunks", False),
                 "in_inbox": meta.get("in_inbox", False),
                 "default_surface": meta.get("default_surface"),
+                **_pipeline_status(meta),
             }
         )
     return {"books": books}
@@ -205,10 +227,10 @@ async def api_library_upload(
     # Remember whether the directory pre-existed so we only remove it on
     # failure if *we* created it — not if a good prior ingest was already there.
     dir_pre_existed = os.path.exists(os.path.join(target_dir, "book.pkl"))
-
     # Stream the upload to a temp file. EPUBs are small enough for disk
     # round-trip to be cheap, and ebooklib wants a path, not a stream.
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".epub", prefix="glosse_upload_")
+    status_started = False
     try:
         with os.fdopen(tmp_fd, "wb") as tmp:
             total_bytes = 0
@@ -224,23 +246,62 @@ async def api_library_upload(
                     )
                 tmp.write(chunk)
 
+        update_meta(
+            book_id,
+            {
+                "book_id": book_id,
+                "title": filename.rsplit(".", 1)[0] or book_id,
+                "authors": [],
+                "chapters": 0,
+                "source_file": filename,
+                "ingest_status": "ingesting",
+                "ingest_error": None,
+                "index_status": "not_started",
+                "index_error": None,
+                "chunk_count": 0,
+                "default_surface": surface_norm,
+            },
+        )
+        status_started = True
+
         def persist_upload():
             uploaded_book = ingest(tmp_path, target_dir)
             save_book(uploaded_book, book_id)
-            update_meta(book_id, {"default_surface": surface_norm})
+            update_meta(
+                book_id,
+                {
+                    "default_surface": surface_norm,
+                    "ingest_status": "ready",
+                    "ingest_error": None,
+                },
+            )
+            try:
+                index_book(uploaded_book, book_id)
+            except Exception:
+                logger.exception("upload: indexing failed for %s", filename)
             return uploaded_book
 
         book = await run_in_threadpool(persist_upload)
     except HTTPException:
+        if status_started:
+            update_meta(book_id, {"ingest_status": "failed", "ingest_error": "upload failed"})
         if not dir_pre_existed:
-            shutil.rmtree(target_dir, ignore_errors=True)
+            failed_meta = read_meta(book_id) if status_started else {}
+            if failed_meta:
+                _restore_meta_after_cleanup(book_id, failed_meta)
+            else:
+                shutil.rmtree(target_dir, ignore_errors=True)
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("upload: ingest failed for %s", filename)
+        current_meta = read_meta(book_id)
+        ingest_ready = current_meta.get("ingest_status") == "ready"
+        if status_started and not ingest_ready:
+            update_meta(book_id, {"ingest_status": "failed", "ingest_error": str(exc)})
         # Only wipe the directory if we created it this request; preserve an
         # existing valid ingest from a prior upload of the same file.
-        if not dir_pre_existed:
-            shutil.rmtree(target_dir, ignore_errors=True)
+        if not dir_pre_existed and not ingest_ready:
+            _restore_meta_after_cleanup(book_id, read_meta(book_id))
         raise HTTPException(status_code=500, detail="ingest failed")
     finally:
         try:
@@ -249,12 +310,15 @@ async def api_library_upload(
             pass
         await file.close()
 
+    meta = await run_in_threadpool(read_meta, book_id)
+    meta["has_chunks"] = os.path.exists(os.path.join(book_dir(book_id), "chunks.pkl"))
     return {
         "id": book_id,
         "title": book.metadata.title,
         "authors": book.metadata.authors,
         "chapters": len(book.spine),
         "default_surface": surface_norm,
+        **_pipeline_status(meta),
     }
 
 
@@ -272,6 +336,7 @@ async def api_book(book_id: str):
     ]
 
     meta = await run_in_threadpool(read_meta, book_id)
+    meta["has_chunks"] = os.path.exists(os.path.join(book_dir(book_id), "chunks.pkl"))
     default_surface = meta.get("default_surface")
     if default_surface not in _VALID_SURFACES:
         default_surface = None
@@ -292,6 +357,7 @@ async def api_book(book_id: str):
         "toc": _serialize_toc(book.toc),
         "progress": progress,
         "default_surface": default_surface,
+        **_pipeline_status(meta),
     }
 
 
@@ -327,6 +393,18 @@ async def api_chapter(book_id: str, chapter_index: int):
         "progress": progress,
         "chapters_total": len(book.spine),
     }
+
+
+@router.get("/api/books/{book_id}/package")
+async def api_book_package(book_id: str):
+    """Future Expo/offline package endpoint. Online v1 reads chapter APIs."""
+    _require_valid_book_id(book_id)
+    if not await run_in_threadpool(load_book, book_id):
+        raise HTTPException(status_code=404, detail="Book not found")
+    raise HTTPException(
+        status_code=501,
+        detail="Offline book packages are planned for the Expo/offline phase.",
+    )
 
 
 @router.get("/api/books/{book_id}/images/{image_name}")
