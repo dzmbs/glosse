@@ -2,7 +2,7 @@
 // safe to re-run. No-ops when the submodule hasn't been initialized yet,
 // or when the patch is already applied.
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 
 const PATCHES = [
@@ -25,18 +25,22 @@ for (const p of PATCHES) {
   // Already applied? `apply --reverse --check` succeeds only if the
   // patch *can* be reversed, i.e. it's currently applied.
   try {
-    execSync(`git -C ${p.submodule} apply --reverse --check ../../${p.patch}`, {
-      stdio: "ignore",
-    });
+    execFileSync(
+      "git",
+      ["-C", p.submodule, "apply", "--reverse", "--check", `../../${p.patch}`],
+      { stdio: "ignore" },
+    );
     continue;
   } catch {
     // Not applied — proceed.
   }
 
   try {
-    execSync(`git -C ${p.submodule} apply ../../${p.patch}`, {
-      stdio: "inherit",
-    });
+    execFileSync(
+      "git",
+      ["-C", p.submodule, "apply", `../../${p.patch}`],
+      { stdio: "inherit" },
+    );
     console.log(`[glosse] applied ${p.name}`);
   } catch (err) {
     console.error(

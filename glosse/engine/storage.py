@@ -26,6 +26,7 @@ from glosse.engine.models import Book, Chunk
 logger = logging.getLogger(__name__)
 
 CHUNK_SCHEMA_VERSION = 1
+_BOOK_ID_RE = re.compile(r"^[a-z0-9_]+$")
 
 # Root for all ingested books. Can be overridden via GLOSSE_DATA_DIR.
 DATA_ROOT = os.environ.get(
@@ -43,8 +44,15 @@ def slugify(name: str) -> str:
     return slug or "book"
 
 
+def validate_book_id(book_id: str) -> str:
+    """Validate the on-disk book id before it is used in filesystem paths."""
+    if not _BOOK_ID_RE.fullmatch(book_id):
+        raise ValueError("invalid book_id")
+    return book_id
+
+
 def book_dir(book_id: str) -> str:
-    return os.path.join(BOOKS_ROOT, book_id)
+    return os.path.join(BOOKS_ROOT, validate_book_id(book_id))
 
 
 def ensure_book_dir(book_id: str) -> str:
@@ -70,9 +78,11 @@ def save_book(book: Book, book_id: str) -> str:
     existing: dict = {}
     if os.path.exists(d_meta_path):
         try:
-            with open(d_meta_path) as f:
+            with open(d_meta_path, encoding="utf-8") as f:
                 existing = json.load(f)
-        except json.JSONDecodeError:
+            if not isinstance(existing, dict):
+                existing = {}
+        except (OSError, json.JSONDecodeError):
             existing = {}
 
     meta = {
@@ -84,8 +94,10 @@ def save_book(book: Book, book_id: str) -> str:
         "source_file": book.source_file,
         "processed_at": book.processed_at,
     }
-    with open(d_meta_path, "w") as f:
+    with open(d_meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
+    # Invalidate the LRU cache so the next load_book call sees the new data.
+    load_book.cache_clear()
     return path
 
 
@@ -95,10 +107,10 @@ def read_meta(book_id: str) -> dict:
     if not os.path.exists(path):
         return {}
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
-    except json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return {}
 
 
@@ -107,13 +119,16 @@ def update_meta(book_id: str, patch: dict) -> dict:
     d = ensure_book_dir(book_id)
     current = read_meta(book_id)
     current.update(patch)
-    with open(os.path.join(d, "meta.json"), "w") as f:
+    with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(current, f, indent=2)
     return current
 
 
 @lru_cache(maxsize=16)
 def load_book(book_id: str) -> Optional[Book]:
+    # NOTE: pickle.load executes arbitrary Python. This is safe as long as
+    # data/books/ is not writable by untrusted parties. The upload endpoint
+    # only writes via ingest(), never from raw user-supplied bytes.
     path = os.path.join(book_dir(book_id), "book.pkl")
     if not os.path.exists(path):
         return None
@@ -132,10 +147,23 @@ def list_books() -> List[dict]:
                 inbox_ids.add(slugify(fname))
     out = []
     for book_id in sorted(os.listdir(BOOKS_ROOT)):
+        if not os.path.isdir(os.path.join(BOOKS_ROOT, book_id)):
+            continue
+        try:
+            validate_book_id(book_id)
+        except ValueError:
+            logger.warning("list_books: invalid book directory name '%s' — skipping", book_id)
+            continue
         meta_path = os.path.join(book_dir(book_id), "meta.json")
         if os.path.exists(meta_path):
-            with open(meta_path) as f:
-                entry = json.load(f)
+            try:
+                with open(meta_path, encoding="utf-8") as f:
+                    entry = json.load(f)
+                if not isinstance(entry, dict):
+                    raise ValueError("meta.json is not an object")
+            except (OSError, ValueError, json.JSONDecodeError):
+                logger.warning("list_books: malformed meta.json for '%s' — skipping", book_id)
+                continue
         else:
             # Fall back to loading the pickle (slow path — should not happen)
             book = load_book(book_id)

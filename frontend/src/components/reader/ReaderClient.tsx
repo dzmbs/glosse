@@ -84,7 +84,6 @@ export function ReaderClient({
   const mainRef = useRef<HTMLDivElement>(null);
   const articleWrapRef = useRef<HTMLDivElement>(null);
   const [selectedText, setSelectedText] = useState<string | null>(null);
-  const [selectionContext, setSelectionContext] = useState<string | null>(null);
   const selectedTextRef = useRef<string | null>(null);
   const preserveSelectionForAskRef = useRef(false);
 
@@ -99,7 +98,6 @@ export function ReaderClient({
       const direction: SwapDirection = nextIndex > chapter.index ? "forward" : "back";
 
       setSelectedText(null);
-      setSelectionContext(null);
       selectedTextRef.current = null;
       preserveSelectionForAskRef.current = false;
       window.getSelection()?.removeAllRanges();

@@ -7,7 +7,8 @@ function-calling. Falls back to OpenRouter on auth/connection failures.
 The tool loop:
   1. Build system prompt from the active mode.
   2. Register retrieve_safe_chunks and get_current_passage, both closed over
-     (book_id, chapter_index) so the spoiler boundary travels with every call.
+     (book_id, current chapter, trusted progress) so the spoiler boundary
+     travels with every call.
   3. Run the model; dispatch tool calls; feed results back.
   4. After the final assistant message, check that at least one retrieval tool
      was called when the user asked a book-content question. If not, append a
@@ -45,6 +46,7 @@ _CONTENT_SIGNALS = (
 class GuideRequest:
     book_id: str
     chapter_index: int
+    progress: Optional[int] = None
     mode: Mode = Mode.LEARNING
     action: str = "ask"
     selection: Optional[str] = None
@@ -77,16 +79,24 @@ def _build_tools_for_openai() -> List[dict]:
     ]
 
 
-def _dispatch_tool(name: str, args: dict, book_id: str, progress: int) -> Any:
+def _dispatch_tool(
+    name: str,
+    args: dict,
+    book_id: str,
+    current_chapter_index: int,
+    progress: int,
+) -> Any:
     if name == "retrieve_safe_chunks":
         return retrieve_safe_chunks(
             book_id=book_id,
             progress=progress,
-            query=args["query"],
+            query=str(args.get("query", "")),
             k=args.get("k", 6),
         )
     if name == "get_current_passage":
-        return get_current_passage(book_id=book_id, chapter_index=progress)
+        if current_chapter_index > progress:
+            return {"error": "current chapter is outside the trusted progress boundary"}
+        return get_current_passage(book_id=book_id, chapter_index=current_chapter_index)
     if name == "detect_spoiler_risk":
         from glosse.codex.tools import detect_spoiler_risk
         return detect_spoiler_risk(book_id=book_id, progress=progress, question=args.get("question", ""))
@@ -101,7 +111,15 @@ def _looks_like_content_question(text: str) -> bool:
 # --- Agent loop -----------------------------------------------------------
 
 
-def _run_loop(client, model: str, messages: list, tools: list, book_id: str, progress: int):
+def _run_loop(
+    client,
+    model: str,
+    messages: list,
+    tools: list,
+    book_id: str,
+    current_chapter_index: int,
+    progress: int,
+):
     """Run the tool loop until the model emits a final answer. Returns (final_text, used_tools, citations)."""
     used_tool_names: List[str] = []
     citations: List[dict] = []
@@ -119,11 +137,21 @@ def _run_loop(client, model: str, messages: list, tools: list, book_id: str, pro
             messages.append(msg)
             for tc in msg.tool_calls:
                 name = tc.function.name
-                args = json.loads(tc.function.arguments or "{}")
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                    if not isinstance(args, dict):
+                        raise ValueError("tool arguments must be a JSON object")
+                except (json.JSONDecodeError, ValueError) as exc:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps({"error": f"invalid tool arguments: {exc}"}),
+                    })
+                    continue
                 logger.info("tool call: %s(%s)", name, args)
                 used_tool_names.append(name)
 
-                result = _dispatch_tool(name, args, book_id, progress)
+                result = _dispatch_tool(name, args, book_id, current_chapter_index, progress)
 
                 # Collect retrieval results as citations.
                 if name == "retrieve_safe_chunks" and isinstance(result, list):
@@ -148,6 +176,7 @@ def run_guide(req: GuideRequest) -> GuideResponse:
     from glosse.codex.llm import get_chat_client, get_openrouter_client
 
     mode_spec = MODES[req.mode]
+    progress = req.progress if req.progress is not None else req.chapter_index
     parts = []
     if req.action and req.action != "ask":
         parts.append(f"[{req.action.upper()}]")
@@ -156,11 +185,12 @@ def run_guide(req: GuideRequest) -> GuideResponse:
     if req.user_message:
         parts.append(req.user_message)
     
-    if not req.selection and not req.user_message and req.action == "explain":
+    no_user_input = not req.selection and not req.user_message
+    if no_user_input and req.action == "explain":
         parts.append("Please retrieve the current passage and summarize or explain it.")
-    elif not req.selection and not req.user_message and req.action == "quiz":
+    elif no_user_input and req.action == "quiz":
         parts.append("Please retrieve the current passage and quiz me on what I've read so far.")
-    elif not req.selection and not req.user_message and req.action == "ask":
+    elif no_user_input and req.action == "ask":
         parts.append("Please retrieve the current passage and answer who's who so far.")
     
     user_text = "\n".join(parts).strip()
@@ -185,12 +215,14 @@ def run_guide(req: GuideRequest) -> GuideResponse:
 
     try:
         text, used_tools, citations = _run_loop(
-            client, model, messages, tools, req.book_id, req.chapter_index
+            client, model, messages, tools, req.book_id, req.chapter_index, progress
         )
     except Exception as exc:
+        from openai import APIConnectionError, AuthenticationError
+
         status = getattr(exc, "status_code", None)
         is_fallback = (
-            type(exc).__name__ in ("AuthenticationError", "APIConnectionError")
+            isinstance(exc, (AuthenticationError, APIConnectionError))
             or status in (401, 500, 502, 503, 504)
         )
         if not is_fallback:
@@ -209,10 +241,11 @@ def run_guide(req: GuideRequest) -> GuideResponse:
         # In the fallback path, inline top-k retrieved chunks into the system
         # prompt so the model doesn't need tool-calling to respect the spoiler
         # boundary (free Llama supports tool-calling, but this is belt+braces).
+        citations = []
         try:
             safe_chunks = retrieve_safe_chunks(
                 book_id=req.book_id,
-                progress=req.chapter_index,
+                progress=progress,
                 query=user_text,
                 k=6,
             )
@@ -232,7 +265,7 @@ def run_guide(req: GuideRequest) -> GuideResponse:
             )
 
         text, used_tools, extra_citations = _run_loop(
-            client, model, messages, tools, req.book_id, req.chapter_index
+            client, model, messages, tools, req.book_id, req.chapter_index, progress
         )
         citations = citations or extra_citations
 

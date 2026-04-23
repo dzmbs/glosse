@@ -35,6 +35,8 @@ export function QuizView({
 
   useEffect(() => {
     let cancelled = false;
+    // Refetching is keyed to the active book/chapter/mode.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     api

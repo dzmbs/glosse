@@ -20,10 +20,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 
 load_dotenv()
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402 — must come after load_dotenv()
 
-from glosse.engine.storage import scan_and_ingest_inbox
-from glosse.server.routes import router
+from glosse.engine.storage import scan_and_ingest_inbox  # noqa: E402
+from glosse.server.routes import router  # noqa: E402
 
 
 @asynccontextmanager

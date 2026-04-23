@@ -42,6 +42,8 @@ export function UploadDialog({
   // Reset local state whenever the dialog is closed.
   useEffect(() => {
     if (!open) {
+      // Closing the controlled dialog clears transient form state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFile(null);
       setSurface("novel");
       setStatus("idle");

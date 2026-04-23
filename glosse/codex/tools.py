@@ -18,6 +18,8 @@ from glosse.engine import retrieval
 from glosse.engine.models import Chunk
 from glosse.engine.storage import load_book
 
+MAX_RETRIEVAL_K = 12
+
 
 # --- Tool: retrieve_safe_chunks ------------------------------------------
 
@@ -34,7 +36,12 @@ def retrieve_safe_chunks(
 
     Returns a JSON-safe list of dicts for the agent to consume directly.
     """
-    chunks = retrieval.retrieve_safe_chunks(book_id, progress, query, k=k)
+    try:
+        requested_k = int(k)
+    except (TypeError, ValueError):
+        requested_k = 6
+    safe_k = max(1, min(requested_k, MAX_RETRIEVAL_K))
+    chunks = retrieval.retrieve_safe_chunks(book_id, progress, query, k=safe_k)
     return [_chunk_to_dict(c) for c in chunks]
 
 

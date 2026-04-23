@@ -17,9 +17,10 @@ from typing import List
 from urllib.parse import unquote
 
 import ebooklib
-from bs4 import BeautifulSoup, Comment
+from bs4 import BeautifulSoup
 from ebooklib import epub
 
+from glosse.engine.html_safety import sanitize_soup
 from glosse.engine.models import (
     Book,
     BookMetadata,
@@ -31,13 +32,7 @@ from glosse.engine.models import (
 
 
 def _clean_html(soup: BeautifulSoup) -> BeautifulSoup:
-    for tag in soup(["script", "style", "iframe", "video", "nav", "form", "button"]):
-        tag.decompose()
-    for comment in soup.find_all(string=lambda t: isinstance(t, Comment)):
-        comment.extract()
-    for tag in soup.find_all("input"):
-        tag.decompose()
-    return soup
+    return sanitize_soup(soup)
 
 
 def _plain_text(soup: BeautifulSoup) -> str:

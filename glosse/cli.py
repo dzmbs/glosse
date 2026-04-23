@@ -37,11 +37,8 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     print(f"  images:   {len(book.images)}")
     print(f"  saved to: {target_dir}")
     print()
-    print("Next steps for the engine dev:")
-    print("  1. Implement glosse/engine/chunking.py -> chunk_book(book, book_id)")
-    print("  2. Implement glosse/engine/embeddings.py -> embed_chunks(chunks)")
-    print("  3. Run:  uv run python -m glosse.cli index", book_id)
-    print("     (index subcommand is stubbed below — wire it up when ready)")
+    print("Next step:")
+    print(f"  uv run glosse index {book_id}")
     return 0
 
 

@@ -32,9 +32,9 @@ import { QuickActions, type QuickActionId } from "./QuickActions";
 import { QuizView } from "./QuizView";
 
 type Msg =
-  | { from: "ai"; kind: "welcome"; text: string }
-  | { from: "ai"; kind: "answer"; data: GuideResponse; label: string }
-  | { from: "user"; text: string };
+  | { id: string; from: "ai"; kind: "welcome"; text: string }
+  | { id: string; from: "ai"; kind: "answer"; data: GuideResponse; label: string }
+  | { id: string; from: "user"; text: string };
 
 type PanelMode = "chat" | "quiz";
 
@@ -73,8 +73,11 @@ export function AIPanel({
   );
 
   const [panelMode, setPanelMode] = useState<PanelMode>("chat");
+  const msgCounter = useRef(0);
+  const nextId = useCallback(() => String(++msgCounter.current), []);
+
   const [messages, setMessages] = useState<Msg[]>([
-    { from: "ai", kind: "welcome", text: welcomeText },
+    { id: "0", from: "ai", kind: "welcome", text: welcomeText },
   ]);
   const selectionContext = activeSelection?.trim() || null;
   const [input, setInput] = useState("");
@@ -83,7 +86,10 @@ export function AIPanel({
 
   // Reset on chapter swap — previous context no longer applies.
   useEffect(() => {
-    setMessages([{ from: "ai", kind: "welcome", text: welcomeText }]);
+    msgCounter.current = 0;
+    // State mirrors the active chapter; resetting here prevents stale chat context.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMessages([{ id: "0", from: "ai", kind: "welcome", text: welcomeText }]);
     setPanelMode("chat");
   }, [bookId, chapterIndex, welcomeText]);
 
@@ -97,8 +103,10 @@ export function AIPanel({
   const send = useCallback(
     async (req: { action: GuideAction; user_message?: string | null; label: string; selection?: string | null }) => {
       setLoading(true);
+      const userMsgId = nextId();
+      const aiMsgId = nextId();
       if (req.user_message) {
-        setMessages((m) => [...m, { from: "user", text: req.user_message as string }]);
+        setMessages((m) => [...m, { id: userMsgId, from: "user", text: req.user_message as string }]);
       }
       try {
         const payload: GuideRequest = {
@@ -112,13 +120,14 @@ export function AIPanel({
         const res = await api.guide(payload);
         setMessages((m) => [
           ...m,
-          { from: "ai", kind: "answer", data: res, label: req.label },
+          { id: aiMsgId, from: "ai", kind: "answer", data: res, label: req.label },
         ]);
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         setMessages((m) => [
           ...m,
           {
+            id: aiMsgId,
             from: "ai",
             kind: "answer",
             label: "Error",
@@ -129,7 +138,7 @@ export function AIPanel({
         setLoading(false);
       }
     },
-    [bookId, chapterIndex, pedagogy, selectionContext],
+    [bookId, chapterIndex, nextId, pedagogy, selectionContext],
   );
 
   const handleQuickAction = useCallback(
@@ -163,6 +172,8 @@ export function AIPanel({
     if (seed === "selection-ask") {
       const text = (seedPayload ?? "").trim();
       if (text.length > 0) {
+        // Seed is an external event from the reader selection flow.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         void send({
           action: "ask",
           user_message: `Help me with this passage:\n\n${text.slice(0, 400)}`,
@@ -205,16 +216,16 @@ export function AIPanel({
           <div ref={scrollRef} className="flex-1 overflow-auto" style={{ padding: "18px 20px 10px" }}>
             <QuickActions onPick={handleQuickAction} />
 
-            {messages.map((m, i) => {
+            {messages.map((m) => {
               if (m.from === "user") {
-                return <UserBubble key={i}>{m.text}</UserBubble>;
+                return <UserBubble key={m.id}>{m.text}</UserBubble>;
               }
               if (m.kind === "welcome") {
-                return <WelcomeLine key={i} text={m.text} />;
+                return <WelcomeLine key={m.id} text={m.text} />;
               }
               return (
                 <MessageFromAgent
-                  key={i}
+                  key={m.id}
                   label={m.label}
                   data={m.data}
                   onFollowupClick={(q) => setInput(q)}
@@ -349,8 +360,8 @@ function Followups({
       >
         Follow-ups
       </div>
-      {items.map((q, i) => (
-        <button key={i} type="button" className="followup" onClick={() => onPick(q)}>
+      {items.map((q) => (
+        <button key={q} type="button" className="followup" onClick={() => onPick(q)}>
           <span>{q}</span>
           <Icon.chevR size={12} />
         </button>

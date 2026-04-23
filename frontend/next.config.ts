@@ -11,7 +11,30 @@ import type { NextConfig } from "next";
  *   - no Turbopack-vs-next.config edge cases
  */
 
-const BACKEND = process.env.INTERNAL_API_BASE ?? "http://127.0.0.1:8123";
+const FRONTEND_ROOT = __dirname;
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https: http://127.0.0.1:8123 http://localhost:8123",
+  "font-src 'self' data:",
+  "connect-src 'self' http://127.0.0.1:8123 http://localhost:8123",
+].join("; ");
+
+const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=()",
+  },
+];
 
 function backendRemotePatterns() {
   const patterns: NonNullable<NonNullable<NextConfig["images"]>["remotePatterns"]> = [
@@ -31,8 +54,18 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: backendRemotePatterns(),
   },
-  // Expose the backend URL to the Route Handler without a second env var.
-  env: { GLOSSE_BACKEND: BACKEND },
+  outputFileTracingRoot: FRONTEND_ROOT,
+  turbopack: {
+    root: FRONTEND_ROOT,
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: SECURITY_HEADERS,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

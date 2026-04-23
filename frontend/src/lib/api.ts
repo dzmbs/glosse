@@ -142,13 +142,17 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function bookPath(bookId: string): string {
+  return encodeURIComponent(bookId);
+}
+
 // -- Public --------------------------------------------------------------
 
 export const api = {
   library: () => req<LibraryResponse>("/api/library"),
-  book: (bookId: string) => req<BookDetail>(`/api/books/${bookId}`),
+  book: (bookId: string) => req<BookDetail>(`/api/books/${bookPath(bookId)}`),
   chapter: (bookId: string, index: number) =>
-    req<Chapter>(`/api/books/${bookId}/chapters/${index}`),
+    req<Chapter>(`/api/books/${bookPath(bookId)}/chapters/${index}`),
   guide: (payload: GuideRequest) =>
     req<GuideResponse>("/api/guide", {
       method: "POST",

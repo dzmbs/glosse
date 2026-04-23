@@ -54,6 +54,8 @@ const DEFAULTS: Tweaks = {
 };
 
 const STORAGE_KEY = "glosse.tweaks.v1";
+const MIN_FONT_SIZE = 16;
+const MAX_FONT_SIZE = 26;
 
 type TweaksContextValue = {
   tweaks: Tweaks;
@@ -75,8 +77,10 @@ export function TweaksProvider({ children }: { children: React.ReactNode }) {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as Partial<Tweaks>;
-        setTweaksState({ ...DEFAULTS, ...parsed });
+        const parsed = JSON.parse(raw) as unknown;
+        // Hydrate after mount to keep the server-rendered default stable.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setTweaksState({ ...DEFAULTS, ...normalizeTweaksPatch(parsed) });
       }
     } catch {
       // Invalid JSON — fall back to defaults.
@@ -94,7 +98,7 @@ export function TweaksProvider({ children }: { children: React.ReactNode }) {
   }, [tweaks]);
 
   const setTweaks = useCallback((next: Partial<Tweaks>) => {
-    setTweaksState((prev) => ({ ...prev, ...next }));
+    setTweaksState((prev) => ({ ...prev, ...normalizeTweaksPatch(next) }));
   }, []);
 
   const reset = useCallback(() => setTweaksState(DEFAULTS), []);
@@ -145,6 +149,34 @@ function applyTweaksToDOM(t: Tweaks): void {
 
   const margin = MARGIN_OPTIONS.find((m) => m.id === t.margin) ?? MARGIN_OPTIONS[1];
   root.style.setProperty("--page-pad", `${margin.pad}px`);
+}
+
+function normalizeTweaksPatch(value: unknown): Partial<Tweaks> {
+  if (!value || typeof value !== "object") return {};
+  const raw = value as Partial<Tweaks>;
+  const next: Partial<Tweaks> = {};
+
+  if (isOptionId(raw.surface, Object.keys(MODES))) next.surface = raw.surface;
+  if (isOptionId(raw.accent, ACCENT_OPTIONS.map((o) => o.id))) next.accent = raw.accent;
+  if (isOptionId(raw.serif, SERIF_OPTIONS.map((o) => o.id))) next.serif = raw.serif;
+  if (isOptionId(raw.margin, MARGIN_OPTIONS.map((o) => o.id))) next.margin = raw.margin;
+  if (isOptionId(raw.aiStyle, AI_STYLE_OPTIONS.map((o) => o.id))) next.aiStyle = raw.aiStyle;
+  if (typeof raw.showMarginNotes === "boolean") next.showMarginNotes = raw.showMarginNotes;
+
+  if (raw.fontSize === null) {
+    next.fontSize = null;
+  } else if (typeof raw.fontSize === "number" && Number.isFinite(raw.fontSize)) {
+    next.fontSize = Math.round(Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, raw.fontSize)));
+  }
+
+  return next;
+}
+
+function isOptionId<T extends string>(
+  value: unknown,
+  options: readonly T[],
+): value is T {
+  return typeof value === "string" && options.includes(value as T);
 }
 
 // Expose the storage key so debug tools / tests can nuke it.

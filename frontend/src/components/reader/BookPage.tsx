@@ -123,7 +123,6 @@ function BookPageImpl({
             (mode.dropcap ? " dropcap" : "") +
             (isNovelSpread ? " chapter-html--spread" : "")
           }
-          // eslint-disable-next-line react/no-danger -- HTML is sanitised at ingest time.
           dangerouslySetInnerHTML={htmlProps}
         />
       </div>

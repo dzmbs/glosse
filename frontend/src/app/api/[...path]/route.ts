@@ -17,16 +17,51 @@ const BACKEND =
   process.env.INTERNAL_API_BASE ??
   "http://127.0.0.1:8123";
 
+const FORWARDED_REQUEST_HEADERS = new Set([
+  "accept",
+  "accept-language",
+  "authorization",
+  "content-type",
+  "cookie",
+  "range",
+  "user-agent",
+]);
+
+const HOP_BY_HOP_RESPONSE_HEADERS = [
+  "connection",
+  "content-encoding",
+  "content-length",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+];
+
+function forwardedHeaders(req: NextRequest): Headers {
+  const headers = new Headers();
+  for (const [name, value] of req.headers) {
+    const key = name.toLowerCase();
+    if (FORWARDED_REQUEST_HEADERS.has(key)) {
+      headers.set(name, value);
+    }
+  }
+  return headers;
+}
+
 async function proxy(
   req: NextRequest,
   params: Promise<{ path: string[] }>,
 ): Promise<Response> {
   const { path } = await params;
-  const target = `${BACKEND}/api/${path.join("/")}${req.nextUrl.search}`;
+  const encodedPath = path.map(encodeURIComponent).join("/");
+  const target = `${BACKEND}/api/${encodedPath}${req.nextUrl.search}`;
 
   const init: RequestInit = {
     method: req.method,
-    headers: req.headers,
+    headers: forwardedHeaders(req),
     // Body is only meaningful for non-GET/HEAD.
     body:
       req.method === "GET" || req.method === "HEAD"
@@ -42,9 +77,9 @@ async function proxy(
   // Pass through status + headers + body. Strip hop-by-hop + compression
   // headers that Next would otherwise double-apply.
   const outHeaders = new Headers(upstream.headers);
-  outHeaders.delete("content-encoding");
-  outHeaders.delete("content-length");
-  outHeaders.delete("transfer-encoding");
+  for (const header of HOP_BY_HOP_RESPONSE_HEADERS) {
+    outHeaders.delete(header);
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,
