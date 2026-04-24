@@ -23,6 +23,7 @@ git submodule update --init --recursive   # first time: pull foliate-js
 pnpm install                              # also auto-applies the foliate-js Vite patch
 pnpm dev
 # → http://localhost:5173
+# → http://localhost:5173/evals   (internal RAG eval page)
 ```
 
 ## Layout
@@ -72,6 +73,19 @@ src/
 - RAG + AI integration (chat, quiz, retention)
 - File drag-drop onto the library page
 - Full-text search inside a book
+
+## Internal evals
+
+- Visit `/evals` to run the built-in Glosse RAG seed suite against your local indexed books.
+- Seed cases match by `book title + author`, not the upload id, so they survive re-imports.
+- The suite currently focuses on:
+  - spoiler safety (`page <= currentPage`)
+  - current-page / local-focus retrieval
+  - answer smoke checks for a few product-critical questions
+- Treat the bundled cases as a starting point. The intended workflow is:
+  1. run the seed suite
+  2. add failures you see in real reading sessions
+  3. grow the dataset from those concrete regressions
 
 ## License
 
