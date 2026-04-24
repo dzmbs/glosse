@@ -89,13 +89,14 @@ scripts/apply-patches.mjs   # postinstall: foliate-js Vite patch
 ## What's here
 
 - Any .epub / .mobi / .azw3 / .fb2 / .cbz / .pdf — stored in IndexedDB as a Blob
-- Library grid + list, search, delete
+- Library grid + list, search, delete; drag-drop upload onto the library
 - 2-page spread that collapses to single column on narrow widths
 - Hierarchical TOC drawer with active-path highlight
 - Cover images from book manifest; deterministic fallback palette
 - Font size + layout controls, persisted per session
 - Per-book progress (CFI + %); resumes on reopen
 - Highlights, notes, bookmarks (AI panel → Highlights)
+- JSON export / import of books, progress, annotations, and AI state (AI panel → Map → Backup)
 
 ## AI features
 
@@ -132,7 +133,7 @@ GLOSSE_BENCH_THINK=true pnpm bench:local          # keep Ollama "think" on
 ## What's next
 
 - Full-text search inside a book
-- Export/import of annotations + AI state
+- OCR fallback for scanned PDFs (image-only files index empty today)
 
 ## Internal evals
 
