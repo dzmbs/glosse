@@ -1,10 +1,8 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 
 import { getDb } from "../db/client";
 import type { ChunkRow } from "../db/schema";
-import { getChatProvider } from "../providers/registry";
-import { useAISettings } from "../providers/settings";
+import { generateStructuredChat } from "../providers/generate";
 
 export type TopicScope =
   | { kind: "all"; maxPage?: number }
@@ -16,11 +14,9 @@ const TopicsSchema = z.object({
       z
         .string()
         .min(2)
-        .max(40)
         .describe("A 1-3 word topic label, Title Case, no trailing punctuation"),
     )
-    .min(4)
-    .max(8),
+    .min(1),
 });
 
 /** In-memory cache keyed on bookId+scope so tab switches don't re-query.
@@ -66,7 +62,6 @@ export async function proposeFocusTopics(
     const chunks = await sampleChunks(bookId, scope, 14);
     if (chunks.length === 0) return [];
 
-    const settings = useAISettings.getState();
     const passageBlock = chunks
       .map(
         (c) =>
@@ -75,8 +70,7 @@ export async function proposeFocusTopics(
       .join("\n\n---\n\n");
 
     try {
-      const { object } = await generateObject({
-        model: getChatProvider(settings.chatModel),
+      const { object } = await generateStructuredChat("topics", {
         schema: TopicsSchema,
         system:
           "You are suggesting focus topics for a study session. Read the passages and propose 6-8 distinctive, concrete topic chips the reader could quiz themselves on. Each chip is 1-3 words, Title Case, no punctuation, no duplicates. Prefer named concepts, techniques, and proper nouns over vague themes.",

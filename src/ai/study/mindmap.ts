@@ -1,15 +1,14 @@
-import { generateObject } from "ai";
-import { z } from "zod";
-
 import { getDb } from "../db/client";
-import { getChatProvider } from "../providers/registry";
-import { useAISettings } from "../providers/settings";
+import { generateStructuredChat } from "../providers/generate";
 import { truncate } from "../utils/str";
+import {
+  MindMapSchema,
+  buildMindMapSystemPrompt,
+  buildMindMapUserPrompt,
+  type MindMapNode,
+} from "../prompts/study";
 
-export type MindMapNode = {
-  label: string;
-  children?: MindMapNode[];
-};
+export type { MindMapNode };
 
 export type MindMap = {
   bookId: string;
@@ -22,27 +21,6 @@ export type MindMap = {
   maxPage: number;
   updatedAt: number;
 };
-
-const NodeSchema: z.ZodType<MindMapNode> = z.lazy(() =>
-  z.object({
-    label: z.string().min(2).max(48),
-    children: z.array(NodeSchema).max(4).optional(),
-  }),
-);
-
-const MindMapSchema = z.object({
-  title: z.string().min(2).max(120),
-  branches: z
-    .array(
-      z.object({
-        chapterTitle: z.string().min(1).max(120),
-        sectionIndex: z.number().int().min(0),
-        nodes: z.array(NodeSchema).min(1).max(6),
-      }),
-    )
-    .min(1)
-    .max(20),
-});
 
 type StoredMap = {
   book_id: string;
@@ -97,43 +75,20 @@ export async function generateMindMap(input: {
     );
   }
 
-  const settings = useAISettings.getState();
-  const system = `You are drafting a concept map for the portion of "${input.bookTitle}"${
-    input.bookAuthor ? ` by ${input.bookAuthor}` : ""
-  } that the reader has reached (pages 1–${input.maxPage}).
+  const system = buildMindMapSystemPrompt({
+    bookTitle: input.bookTitle,
+    bookAuthor: input.bookAuthor,
+    maxPage: input.maxPage,
+  });
+  const prompt = buildMindMapUserPrompt({
+    bookTitle: input.bookTitle,
+    sections,
+  });
 
-For each chapter listed below, produce:
-- Its chapterTitle (verbatim from the list)
-- Its sectionIndex (verbatim)
-- 3-6 top-level nodes: the key concepts, arguments, or terms introduced in that chapter
-- Optional 2-4 children per node for specific sub-concepts (skip children when the node is already atomic)
-
-Rules:
-- Node labels are 1-4 words, concrete. Prefer named concepts and proper nouns over vague themes.
-- Ground every node in the excerpts provided. Don't invent content.
-- Don't repeat the chapter title as a top-level node.
-- No full sentences, no punctuation, no leading articles ("The", "A").
-- Never use ellipsis.`;
-
-  const excerpts = sections
-    .map(
-      (s) =>
-        `### Section ${s.sectionIndex} — ${s.chapterTitle || "(untitled)"}\n${s.excerpt}`,
-    )
-    .join("\n\n");
-
-  const { object } = await generateObject({
-    model: getChatProvider(settings.chatModel),
+  const { object } = await generateStructuredChat("mindmap", {
     schema: MindMapSchema,
     system,
-    prompt: `Chapters available (sectionIndex :: chapterTitle):
-${sections.map((s) => `${s.sectionIndex} :: ${s.chapterTitle || "(untitled)"}`).join("\n")}
-
-<EXCERPTS>
-${excerpts}
-</EXCERPTS>
-
-Return the concept map as specified. The "title" field should be the book title exactly: "${input.bookTitle}".`,
+    prompt,
   });
 
   const map: MindMap = {
