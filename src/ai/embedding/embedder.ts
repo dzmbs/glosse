@@ -53,12 +53,13 @@ export async function embedBatch(
 }
 
 function getEmbeddingProviderOptions(cfg: EmbeddingModelConfig) {
-  if (cfg.provider !== "openai") return undefined;
-  return {
-    openai: {
-      dimensions: cfg.dimensions,
-    },
+  // Qwen3-Embedding supports Matryoshka truncation via the `dimensions`
+  // param on Ollama's /api/embed. Models that don't recognise the param
+  // (nomic, mxbai, embeddinggemma) ignore it — safe to always send.
+  const options: Record<string, { dimensions: number }> = {
+    [cfg.provider]: { dimensions: cfg.dimensions },
   };
+  return options;
 }
 
 /**
