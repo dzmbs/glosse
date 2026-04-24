@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { BookCover } from "@/components/BookCover";
 import { Icon } from "@/components/Icons";
+import { RuntimeBanner } from "@/components/RuntimeBanner";
 import {
   deleteBook,
   getProgress,
@@ -97,6 +98,7 @@ export function LibraryPage() {
       style={{ background: "var(--paper)", color: "var(--ink)" }}
     >
       <SiteChrome />
+      <RuntimeBanner />
 
       <div className="mx-auto max-w-[1320px] px-10 pb-16 pt-10">
         <Hero

@@ -11,6 +11,10 @@ import {
 // @ts-ignore -- vendored library, no types
 import "../../vendor/foliate-js/view.js";
 
+import {
+  diffViewportHighlights,
+  parseSelectionPageNumber,
+} from "@/components/bookViewportState";
 import { extractAuthor, extractTitle } from "@/lib/foliate-meta";
 import type {
   FoliateRelocateDetail,
@@ -40,13 +44,35 @@ export type BookViewportHandle = {
   prev: () => Promise<void>;
   goToHref: (href: string) => Promise<void>;
   goToCfi: (cfi: string) => Promise<void>;
+  addHighlight: (cfi: string, color?: string) => Promise<void>;
+  removeHighlight: (cfi: string) => Promise<void>;
+  clearSelection: () => void;
+};
+
+export type SelectionEvent = {
+  text: string;
+  cfi: string;
+  pageNumber: number | null;
+  rect: { left: number; top: number; bottom: number };
 };
 
 type Props = {
   file: Blob;
   initialCfi?: string | null;
-  onReady?: (payload: { toc: TocItem[]; title: string; author: string }) => void;
+  onReady?: (payload: {
+    toc: TocItem[];
+    title: string;
+    author: string;
+    /** Raw foliate-js book. Opaque to callers; used for on-demand indexing. */
+    book: unknown;
+  }) => void;
   onRelocated?: (ev: RelocatedEvent) => void;
+  /** Called when the reader selects text inside the book. */
+  onSelection?: (ev: SelectionEvent | null) => void;
+  /** Called when the reader clicks an existing highlight. */
+  onHighlightClick?: (cfi: string) => void;
+  /** Pre-existing highlights to render. */
+  initialHighlights?: Array<{ cfi: string; color?: string }>;
   theme: {
     paper: string;
     ink: string;
@@ -122,14 +148,36 @@ function applyThemeToDoc(doc: Document, css: string) {
 
 export const BookViewport = forwardRef<BookViewportHandle, Props>(
   function BookViewport(
-    { file, initialCfi, onReady, onRelocated, theme, themeKey, fontSize, spread },
+    {
+      file,
+      initialCfi,
+      onReady,
+      onRelocated,
+      onSelection,
+      onHighlightClick,
+      initialHighlights,
+      theme,
+      themeKey,
+      fontSize,
+      spread,
+    },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<FoliateView | null>(null);
     const loadedDocsRef = useRef<Set<Document>>(new Set());
+    const renderedHighlightsRef = useRef<Map<string, string>>(new Map());
+    const onSelectionRef = useRef(onSelection);
+    const onHighlightClickRef = useRef(onHighlightClick);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+      onSelectionRef.current = onSelection;
+    }, [onSelection]);
+    useEffect(() => {
+      onHighlightClickRef.current = onHighlightClick;
+    }, [onHighlightClick]);
 
     useEffect(() => {
       let cancelled = false;
@@ -143,16 +191,37 @@ export const BookViewport = forwardRef<BookViewportHandle, Props>(
 
           container.innerHTML = "";
           loadedDocsRef.current.clear();
+          renderedHighlightsRef.current.clear();
 
           const view = document.createElement("foliate-view");
           viewRef.current = view;
           container.appendChild(view);
 
           view.addEventListener("load", (e) => {
-            const { doc } = (e as CustomEvent<{ doc: Document; index: number }>)
-              .detail;
+            const { doc, index } = (
+              e as CustomEvent<{ doc: Document; index: number }>
+            ).detail;
             loadedDocsRef.current.add(doc);
             applyThemeToDoc(doc, buildThemeCSS(theme, fontSize));
+            attachSelectionListener(doc, index, view, onSelectionRef);
+          });
+
+          view.addEventListener(
+            "show-annotation",
+            (e) => {
+              const { value } = (e as CustomEvent<{ value: string }>).detail;
+              onHighlightClickRef.current?.(value);
+            },
+          );
+
+          view.addEventListener("draw-annotation", (e) => {
+            const detail = (
+              e as CustomEvent<{
+                draw: (ctor: unknown, opts?: unknown) => void;
+                annotation: { color?: string };
+              }>
+            ).detail;
+            drawHighlightStripe(detail);
           });
 
           view.addEventListener("relocate", (e) => {
@@ -191,6 +260,7 @@ export const BookViewport = forwardRef<BookViewportHandle, Props>(
             toc: normalizeToc(book?.toc),
             title: extractTitle(book?.metadata),
             author: extractAuthor(book?.metadata),
+            book: book ?? null,
           });
 
           // Force a nav after setting paginator attributes: view.open() auto-
@@ -211,6 +281,24 @@ export const BookViewport = forwardRef<BookViewportHandle, Props>(
               (s) => s.linear !== "no",
             );
             await view.goTo(firstLinear >= 0 ? firstLinear : 0);
+          }
+
+          // Render pre-existing highlights (after the first section loads
+          // foliate will redraw when the section becomes visible).
+          if (initialHighlights && initialHighlights.length > 0) {
+            for (const h of initialHighlights) {
+              try {
+                await (view as unknown as {
+                  addAnnotation: (ann: {
+                    value: string;
+                    color?: string;
+                  }) => Promise<void>;
+                }).addAnnotation({ value: h.cfi, color: h.color ?? "yellow" });
+                renderedHighlightsRef.current.set(h.cfi, h.color ?? "yellow");
+              } catch {
+                // ignore
+              }
+            }
           }
 
           if (!cancelled) setLoading(false);
@@ -262,6 +350,45 @@ export const BookViewport = forwardRef<BookViewportHandle, Props>(
       r.setAttribute("max-column-count", spread === "auto" ? "2" : "1");
     }, [spread]);
 
+    useEffect(() => {
+      const view = viewRef.current as unknown as
+        | {
+            addAnnotation: (annotation: {
+              value: string;
+              color?: string;
+            }) => Promise<void>;
+            deleteAnnotation: (annotation: { value: string }) => Promise<void>;
+          }
+        | null;
+      if (!view) return;
+
+      const rendered = renderedHighlightsRef.current;
+      const nextHighlights = initialHighlights ?? [];
+      const { toAdd, toRemove } = diffViewportHighlights(rendered, nextHighlights);
+      if (toAdd.length === 0 && toRemove.length === 0) return;
+
+      void (async () => {
+        for (const cfi of toRemove) {
+          try {
+            await view.deleteAnnotation({ value: cfi });
+          } catch {
+            // ignore
+          }
+          rendered.delete(cfi);
+        }
+
+        for (const highlight of toAdd) {
+          const color = highlight.color ?? "yellow";
+          try {
+            await view.addAnnotation({ value: highlight.cfi, color });
+            rendered.set(highlight.cfi, color);
+          } catch {
+            // ignore
+          }
+        }
+      })();
+    }, [initialHighlights]);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -276,6 +403,35 @@ export const BookViewport = forwardRef<BookViewportHandle, Props>(
         },
         goToCfi: async (cfi) => {
           await viewRef.current?.goTo(cfi);
+        },
+        addHighlight: async (cfi: string, color = "yellow") => {
+          const v = viewRef.current as unknown as
+            | {
+                addAnnotation: (ann: {
+                  value: string;
+                  color?: string;
+                }) => Promise<void>;
+              }
+            | null;
+          await v?.addAnnotation({ value: cfi, color });
+        },
+        removeHighlight: async (cfi: string) => {
+          const v = viewRef.current as unknown as
+            | {
+                deleteAnnotation: (ann: { value: string }) => Promise<void>;
+              }
+            | null;
+          await v?.deleteAnnotation({ value: cfi });
+        },
+        clearSelection: () => {
+          for (const doc of loadedDocsRef.current) {
+            try {
+              doc.defaultView?.getSelection()?.removeAllRanges();
+            } catch {
+              // ignore
+            }
+          }
+          onSelectionRef.current?.(null);
         },
       }),
       [],
@@ -326,6 +482,109 @@ export const BookViewport = forwardRef<BookViewportHandle, Props>(
     );
   },
 );
+
+const SELECTION_ATTACHED = new WeakSet<Document>();
+
+function attachSelectionListener(
+  doc: Document,
+  index: number,
+  view: FoliateView,
+  onSelectionRef: React.MutableRefObject<
+    ((ev: SelectionEvent | null) => void) | undefined
+  >,
+) {
+  if (SELECTION_ATTACHED.has(doc)) return;
+  SELECTION_ATTACHED.add(doc);
+
+  const emit = () => {
+    const selection = doc.defaultView?.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      onSelectionRef.current?.(null);
+      return;
+    }
+    const text = selection.toString().trim();
+    if (!text) {
+      onSelectionRef.current?.(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    let cfi: string | null = null;
+    let pageNumber: number | null = null;
+    try {
+      const v = view as unknown as {
+        getCFI: (idx: number, range: Range) => string;
+        getProgressOf?: (
+          idx: number,
+          range: Range,
+        ) => { pageItem?: { label?: string } | null } | undefined;
+      };
+      cfi = v.getCFI(index, range);
+      pageNumber = parseSelectionPageNumber(
+        v.getProgressOf?.(index, range)?.pageItem?.label,
+      );
+    } catch {
+      return;
+    }
+    if (!cfi) return;
+
+    // Convert the range's bounding rect from the iframe doc to viewport
+    // coords. foliate's paginator positions each iframe inside a parent;
+    // we add the iframe's frame element offset when available.
+    const rangeRect = range.getBoundingClientRect();
+    const frame = doc.defaultView?.frameElement as HTMLElement | null;
+    const frameRect = frame?.getBoundingClientRect();
+    const dx = frameRect?.left ?? 0;
+    const dy = frameRect?.top ?? 0;
+
+    onSelectionRef.current?.({
+      text,
+      cfi,
+      pageNumber,
+      rect: {
+        left: rangeRect.left + dx + rangeRect.width / 2,
+        top: rangeRect.top + dy,
+        bottom: rangeRect.bottom + dy,
+      },
+    });
+  };
+
+  const onPointerUp = () => setTimeout(emit, 10);
+  const onSelChange = () => {
+    const selection = doc.defaultView?.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      onSelectionRef.current?.(null);
+    }
+  };
+
+  doc.addEventListener("pointerup", onPointerUp);
+  doc.addEventListener("selectionchange", onSelChange);
+}
+
+function drawHighlightStripe(detail: {
+  draw: (ctor: unknown, opts?: unknown) => void;
+  annotation: { color?: string };
+}) {
+  const color = highlightFill(detail.annotation.color);
+  try {
+    detail.draw(undefined, { fill: color, opacity: 1 });
+  } catch {
+    // ignore
+  }
+}
+
+function highlightFill(color?: string): string {
+  switch (color) {
+    case "red":
+      return "rgba(200, 60, 40, 0.25)";
+    case "blue":
+      return "rgba(60, 120, 200, 0.25)";
+    case "green":
+      return "rgba(60, 160, 100, 0.28)";
+    case "yellow":
+    default:
+      return "rgba(255, 214, 90, 0.38)";
+  }
+}
 
 function Loader({ paper, inkSoft }: { paper: string; inkSoft: string }) {
   return (

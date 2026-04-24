@@ -5,11 +5,27 @@ import {
   BookViewport,
   type BookViewportHandle,
   type RelocatedEvent,
+  type SelectionEvent,
   type TocItem,
 } from "@/components/BookViewport";
 import { Icon } from "@/components/Icons";
 import { TocDrawer } from "@/components/TocDrawer";
 import { TweaksPanel } from "@/components/TweaksPanel";
+import { AIPanel, type AITab } from "@/components/ai/AIPanel";
+import { AISettingsPanel } from "@/components/ai/AISettingsPanel";
+import { RuntimeBanner } from "@/components/RuntimeBanner";
+import {
+  SelectionMenu,
+  type SelectionAction,
+} from "@/components/ai/SelectionMenu";
+import {
+  createHighlight,
+  listHighlights,
+  type Highlight,
+} from "@/ai/highlights";
+import { insertCards } from "@/ai";
+import { useAISettings } from "@/ai/providers/settings";
+import type { ReadingFocus } from "@/ai/types";
 import {
   getBook,
   getProgress,
@@ -18,6 +34,10 @@ import {
 } from "@/lib/db";
 import { resolveActiveToc } from "@/lib/toc";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+
+function truncate(text: string, n: number): string {
+  return text.length > n ? `${text.slice(0, n - 1)}…` : text;
+}
 
 const THEME = {
   paper: "#ffffff",
@@ -59,8 +79,16 @@ export function ReaderPage() {
   );
 
   const [toc, setToc] = useState<TocItem[]>([]);
+  const [foliateBook, setFoliateBook] = useState<unknown | null>(null);
   const [tocOpen, setTocOpen] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiTab, setAiTab] = useState<AITab>("ask");
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [selection, setSelection] = useState<SelectionEvent | null>(null);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [chatSeed, setChatSeed] = useState<ReadingFocus | null>(null);
+  const aiEnabled = useAISettings((s) => s.enabled);
 
   const [fontSize, setFontSize] = useLocalStorage<number>(
     "glosse.fontSize",
@@ -104,9 +132,112 @@ export function ReaderPage() {
     };
   }, [bookId]);
 
-  const handleReady = useCallback((payload: { toc: TocItem[] }) => {
-    setToc(payload.toc);
+  const handleReady = useCallback(
+    (payload: { toc: TocItem[]; book: unknown }) => {
+      setToc(payload.toc);
+      setFoliateBook(payload.book);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!bookId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listHighlights(bookId);
+        if (!cancelled) setHighlights(list);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bookId]);
+
+  const handleSelection = useCallback((ev: SelectionEvent | null) => {
+    setSelection(ev);
   }, []);
+
+  const { activeId, ancestorIds, activeLabel } = useMemo(
+    () => resolveActiveToc(toc, location.href),
+    [toc, location.href],
+  );
+
+  const handleSelectionAction = useCallback(
+    async (action: SelectionAction) => {
+      const sel = selection;
+      if (!sel || !bookId) return;
+      switch (action) {
+        case "highlight": {
+          try {
+            const h = await createHighlight({
+              bookId,
+              cfi: sel.cfi,
+              text: sel.text,
+              pageNumber: sel.pageNumber ?? null,
+            });
+            setHighlights((hs) => [h, ...hs]);
+            await viewportRef.current?.addHighlight(sel.cfi, "yellow");
+          } catch (err) {
+            console.warn("Failed to save highlight:", err);
+          }
+          break;
+        }
+        case "ask": {
+          setChatSeed({
+            selectedText: sel.text,
+            cfi: sel.cfi,
+            pageNumber: sel.pageNumber ?? null,
+            chapterTitle: activeLabel ?? null,
+          });
+          setAiTab("ask");
+          setAiOpen(true);
+          if (aiEnabled) {
+            void import("@/ai/events").then(({ recordReadingEvent }) =>
+              recordReadingEvent({
+                bookId,
+                kind: "selection_ask",
+                pageNumber: sel.pageNumber ?? null,
+              }),
+            );
+          }
+          break;
+        }
+        case "quiz": {
+          try {
+            await insertCards([
+              {
+                bookId,
+                front: `From p. ${sel.pageNumber ?? "?"}: What's the key idea of this passage?\n\n"${truncate(sel.text, 280)}"`,
+                back: sel.text,
+                explanation:
+                  "You saved this passage as a flashcard. On review, recall the key idea before revealing.",
+                sourceCfi: sel.cfi,
+              },
+            ]);
+            setAiTab("flashcards");
+            setAiOpen(true);
+          } catch (err) {
+            console.warn("Failed to create quiz card:", err);
+          }
+          break;
+        }
+        case "copy": {
+          try {
+            await navigator.clipboard.writeText(sel.text);
+          } catch {
+            // ignore
+          }
+          break;
+        }
+      }
+      viewportRef.current?.clearSelection();
+      setSelection(null);
+    },
+    [activeLabel, aiEnabled, bookId, selection],
+  );
 
   const handleRelocated = useCallback(
     (ev: RelocatedEvent) => {
@@ -135,9 +266,18 @@ export function ReaderPage() {
           percentage: pending.percentage,
           updatedAt: Date.now(),
         });
+        if (aiEnabled && ev.page != null) {
+          void import("@/ai/events").then(({ recordReadingEvent }) =>
+            recordReadingEvent({
+              bookId,
+              kind: "page_view",
+              pageNumber: ev.page,
+            }),
+          );
+        }
       }, PROGRESS_DEBOUNCE_MS);
     },
-    [bookId],
+    [aiEnabled, bookId],
   );
 
   // Flush the pending progress write on unmount so the last page turn
@@ -158,11 +298,6 @@ export function ReaderPage() {
       }
     };
   }, [bookId]);
-
-  const { activeId, ancestorIds, activeLabel } = useMemo(
-    () => resolveActiveToc(toc, location.href),
-    [toc, location.href],
-  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -231,12 +366,19 @@ export function ReaderPage() {
       className="flex h-screen w-screen flex-col overflow-hidden"
       style={{ background: "var(--paper)", color: "var(--ink)" }}
     >
+      <RuntimeBanner />
       <TopBar
         bookTitle={book.title}
         chapterLabel={activeLabel ?? ""}
         progressPct={location.percentage}
         onOpenToc={() => setTocOpen(true)}
         onOpenTweaks={() => setTweaksOpen((v) => !v)}
+        onOpenAiSettings={() => setAiSettingsOpen(true)}
+        onToggleAiChat={() => {
+          setAiTab("ask");
+          setAiOpen((v) => !v);
+        }}
+        aiEnabled={aiEnabled}
       />
 
       <div className="relative flex-1 overflow-hidden">
@@ -257,11 +399,24 @@ export function ReaderPage() {
           initialCfi={initialCfi}
           onReady={handleReady}
           onRelocated={handleRelocated}
+          onSelection={handleSelection}
+          initialHighlights={highlights.map((h) => ({
+            cfi: h.cfi,
+            color: h.color,
+          }))}
           themeKey="fixed"
           theme={THEME}
           fontSize={fontSize}
           spread={spread}
         />
+
+        {selection && (
+          <SelectionMenu
+            x={selection.rect.left}
+            y={selection.rect.top}
+            onAction={(action) => void handleSelectionAction(action)}
+          />
+        )}
       </div>
 
       <BottomBar
@@ -289,6 +444,39 @@ export function ReaderPage() {
         spread={spread}
         onSpread={setSpread}
       />
+
+      <AIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        onOpenSettings={() => setAiSettingsOpen(true)}
+        tab={aiTab}
+        onTabChange={setAiTab}
+        bookId={book.id}
+        bookTitle={book.title}
+        bookAuthor={book.author}
+        currentPage={location.page ?? 1}
+        totalPages={location.pageTotal ?? undefined}
+        currentChapterTitle={activeLabel ?? null}
+        foliateBook={foliateBook}
+        seedFocus={chatSeed}
+        onSeedConsumed={() => setChatSeed(null)}
+        onJumpToHighlight={(cfi) => {
+          setAiOpen(false);
+          void viewportRef.current?.goToCfi(cfi);
+        }}
+        onHighlightRemoved={(id) => {
+          const removed = highlights.find((highlight) => highlight.id === id);
+          setHighlights((hs) => hs.filter((h) => h.id !== id));
+          if (removed) {
+            void viewportRef.current?.removeHighlight(removed.cfi);
+          }
+        }}
+      />
+
+      <AISettingsPanel
+        open={aiSettingsOpen}
+        onClose={() => setAiSettingsOpen(false)}
+      />
     </div>
   );
 }
@@ -299,12 +487,18 @@ function TopBar({
   progressPct,
   onOpenToc,
   onOpenTweaks,
+  onOpenAiSettings,
+  onToggleAiChat,
+  aiEnabled,
 }: {
   bookTitle: string;
   chapterLabel: string;
   progressPct: number;
   onOpenToc: () => void;
   onOpenTweaks: () => void;
+  onOpenAiSettings: () => void;
+  onToggleAiChat: () => void;
+  aiEnabled: boolean;
 }) {
   return (
     <header
@@ -369,15 +563,40 @@ function TopBar({
       </button>
       <button
         type="button"
+        className="icon-btn"
+        onClick={onOpenAiSettings}
+        title="AI settings"
+      >
+        <KeyIcon />
+      </button>
+      <button
+        type="button"
         className="ai-btn"
-        title="Ask AI (coming soon)"
-        disabled
-        style={{ opacity: 0.5, cursor: "default" }}
+        onClick={onToggleAiChat}
+        title={aiEnabled ? "Open Desk" : "Configure AI to open Desk"}
       >
         <Icon.sparkle size={15} />
-        <span>Ask</span>
+        <span>Desk</span>
       </button>
     </header>
+  );
+}
+
+function KeyIcon() {
+  return (
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx={8} cy={15} r={4} />
+      <path d="M10.85 12.15 19 4M15 8l3 3" />
+    </svg>
   );
 }
 
