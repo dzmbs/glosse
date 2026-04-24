@@ -14,10 +14,13 @@ paper, near-black ink, a proper book serif.
   git submodule at `vendor/foliate-js`, MIT licensed). Handles EPUB, MOBI,
   KF8/AZW3, FB2, CBZ, and PDF. Custom `@font-face` resolution works
   correctly from Blob sources.
-- **IndexedDB** (via `idb`) — books, covers, progress, and annotations
-  persist locally. Preferences live in `localStorage`.
+- **IndexedDB** (via `idb`) — book blobs, covers, and reading progress.
+  Preferences live in `localStorage`; API keys too (BYOK, never sent to
+  a server we control).
 - **Turso WASM SQLite** (`@tursodatabase/database-wasm`) — in-browser
-  SQLite for the AI index (chunks, embeddings, conversations, quiz state).
+  SQLite for everything else: chunks, embeddings, conversations,
+  flashcards, quiz state, highlights, notes, mind maps, summaries,
+  reader profile, weekly recaps.
 - **Vercel AI SDK v6** (`ai`, `@ai-sdk/{anthropic,google,openai}`,
   `ai-sdk-ollama`) — chat, structured output, embeddings. Ollama is the
   default local provider; cloud keys are BYO and stored in localStorage.
