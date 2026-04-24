@@ -6,12 +6,29 @@ import {
 } from "react-router-dom";
 
 import "./index.css";
-import { LibraryPage } from "@/pages/LibraryPage";
-import { ReaderPage } from "@/pages/ReaderPage";
 
 const router = createBrowserRouter([
-  { path: "/", element: <LibraryPage /> },
-  { path: "/read/:bookId", element: <ReaderPage /> },
+  {
+    path: "/",
+    lazy: async () => {
+      const mod = await import("@/pages/LibraryPage");
+      return { Component: mod.LibraryPage };
+    },
+  },
+  {
+    path: "/read/:bookId",
+    lazy: async () => {
+      const mod = await import("@/pages/ReaderPage");
+      return { Component: mod.ReaderPage };
+    },
+  },
+  {
+    path: "/evals",
+    lazy: async () => {
+      const mod = await import("@/pages/EvalsPage");
+      return { Component: mod.EvalsPage };
+    },
+  },
 ]);
 
 createRoot(document.getElementById("root")!).render(
