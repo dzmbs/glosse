@@ -62,12 +62,22 @@ export async function indexBook(
   const db = await getDb();
 
   onProgress?.({ phase: "chunking", current: 0, total: book.sections.length });
+  console.info(
+    `[index] ${book.bookId} sections=${book.sections.length} title=${book.title}`,
+  );
   const pieces = chunkBook(book);
+  console.info(`[index] ${book.bookId} chunks=${pieces.length}`);
 
   if (pieces.length === 0) {
+    // Don't silently "succeed" with no chunks — that leaves the book in a
+    // half-state where Ask says "not indexed yet" forever. Surface a real
+    // error the UI can show. Most common cause for PDFs is a scanned /
+    // image-only file with no extractable text layer.
     await deleteBookIndex(book.bookId);
     onProgress?.({ phase: "done" });
-    return { totalChunks: 0 };
+    throw new Error(
+      "Couldn't extract any text from this book. For PDFs, this usually means the file is scanned images without a text layer — try a different copy or run OCR first.",
+    );
   }
 
   // Optionally contextualize each chunk before embedding. We prepend a
