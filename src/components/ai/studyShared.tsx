@@ -232,6 +232,15 @@ export function BackRow({ title, onBack }: { title: string; onBack: () => void }
 }
 
 export function Status({ text }: { text: string }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    setElapsed(0);
+    const startedAt = performance.now();
+    const id = window.setInterval(() => {
+      setElapsed(Math.floor((performance.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [text]);
   return (
     <div
       className="italic"
@@ -243,9 +252,30 @@ export function Status({ text }: { text: string }) {
         color: "var(--ink-muted)",
       }}
     >
-      {text}
+      <div>{text}</div>
+      {elapsed >= 5 && (
+        <div
+          style={{
+            marginTop: 10,
+            fontFamily: "var(--mono-stack)",
+            fontSize: 11,
+            color: "var(--ink-muted)",
+            opacity: 0.75,
+          }}
+        >
+          {formatElapsed(elapsed)}
+          {elapsed >= 60 && " — local models can take a minute"}
+        </div>
+      )}
     </div>
   );
+}
+
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
 }
 
 export function ErrorState({

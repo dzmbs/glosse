@@ -17,6 +17,12 @@ import {
 } from "../indexing/bookIndex";
 import { classifyReaderIntent, type ReaderIntent } from "../prompts/companion";
 
+export type RetrievalTimings = {
+  embedMs: number;
+  searchMs: number;
+  totalMs: number;
+};
+
 export type RetrievalOptions = {
   bookId: string;
   query: string;
@@ -25,6 +31,8 @@ export type RetrievalOptions = {
   topK?: number;
   /** Only chunks with pageNumber <= maxPage are considered (spoiler filter). */
   maxPage?: number;
+  /** Fires once per retrieval pass with a breakdown of where time went. */
+  onTimings?: (t: RetrievalTimings) => void;
 };
 
 const DEFAULT_TOPK = 8;
@@ -57,7 +65,9 @@ export async function hybridRetrieve(
     currentPage,
     topK = DEFAULT_TOPK,
     maxPage,
+    onTimings,
   } = opts;
+  const startedAt = performance.now();
   const intent = classifyReaderIntent(query, focus);
 
   // Authoritative config for this book — must be used for every embedding
@@ -86,8 +96,11 @@ export async function hybridRetrieve(
   );
 
   let qvec: Float32Array;
+  const embedStartedAt = performance.now();
+  let embedDurationMs = 0;
   try {
     qvec = await embedQuery(embedding, query);
+    embedDurationMs = performance.now() - embedStartedAt;
   } catch (err) {
     throw new BookIndexUnavailableError({
       bookId,
@@ -200,8 +213,16 @@ export async function hybridRetrieve(
     }
   }
 
+  const searchStartedAt = performance.now();
   const resolvedPools = await Promise.all(pools);
-  return rrfFuse(resolvedPools, { currentPage, intent }).slice(0, topK);
+  const fused = rrfFuse(resolvedPools, { currentPage, intent }).slice(0, topK);
+  const finishedAt = performance.now();
+  onTimings?.({
+    embedMs: Math.round(embedDurationMs),
+    searchMs: Math.round(finishedAt - searchStartedAt),
+    totalMs: Math.round(finishedAt - startedAt),
+  });
+  return fused;
 }
 
 async function vectorSearch(

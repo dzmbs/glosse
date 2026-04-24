@@ -9,7 +9,11 @@ import {
   type BookIndexConfig,
 } from "@/ai/indexing/bookIndex";
 import { extractSections } from "@/ai/indexing/extract";
-import { useBookChat, type ChatMessage } from "@/ai/chat/useBookChat";
+import {
+  useBookChat,
+  type ChatMessage,
+  type ChatPhase,
+} from "@/ai/chat/useBookChat";
 import { useAISettings } from "@/ai/providers/settings";
 import type { IndexingProgress, ReadingFocus } from "@/ai/types";
 import {
@@ -168,10 +172,16 @@ export function AskBody({
     const text = input.trim() || (focus ? "Explain this passage." : "");
     if (!text) return;
     const nextFocus = focus ?? undefined;
-    const sent = await chat.send(text, nextFocus);
-    if (!sent) return;
+    // Clear the composer as soon as we dispatch. chat.send() awaits the
+    // full stream (~20-30s with local models), so clearing on success
+    // leaves the user's question sitting in the box the whole time.
     setInput("");
     setFocus(null);
+    const sent = await chat.send(text, nextFocus);
+    if (!sent) {
+      setInput(text);
+      if (nextFocus) setFocus(nextFocus);
+    }
   }, [chat, focus, input]);
 
   return (
@@ -215,6 +225,7 @@ export function AskBody({
             <MessageList
               messages={chat.messages}
               loading={chat.loading}
+              phase={chat.phase}
               error={chat.error}
               bookTitle={bookTitle}
               needsKey={!hasRequiredKeyForBook(gateStatus, settings)}
@@ -250,6 +261,7 @@ export function AskBody({
 function MessageList({
   messages,
   loading,
+  phase,
   error,
   bookTitle,
   needsKey,
@@ -259,6 +271,7 @@ function MessageList({
 }: {
   messages: ChatMessage[];
   loading: boolean;
+  phase: ChatPhase;
   error: string | null;
   bookTitle: string;
   needsKey: boolean;
@@ -335,15 +348,26 @@ function MessageList({
       }}
     >
       {messages.map((m) => (
-        <MessageBubble key={m.id} message={m} />
+        <MessageBubble key={m.id} message={m} phase={phase} />
       ))}
       {error && <ErrorInline detail={error} />}
     </div>
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  phase,
+}: {
+  message: ChatMessage;
+  phase: ChatPhase;
+}) {
   const isUser = message.role === "user";
+  const showStageText =
+    !isUser &&
+    message.pending &&
+    message.content.length === 0 &&
+    (phase === "retrieving" || phase === "thinking");
   return (
     <div
       style={{
@@ -361,27 +385,114 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         wordBreak: "break-word",
       }}
     >
-      {message.content}
-      {message.pending && (
-        <span
-          style={{
-            display: "inline-block",
-            width: 8,
-            height: 14,
-            marginLeft: 3,
-            verticalAlign: "-2px",
-            background: "currentColor",
-            opacity: 0.5,
-            animation: "glosse-caret 1s steps(2) infinite",
-          }}
-        />
+      {showStageText ? (
+        <PhaseIndicator phase={phase} />
+      ) : (
+        <>
+          {message.content}
+          {message.pending && (
+            <span
+              style={{
+                display: "inline-block",
+                width: 8,
+                height: 14,
+                marginLeft: 3,
+                verticalAlign: "-2px",
+                background: "currentColor",
+                opacity: 0.5,
+                animation: "glosse-caret 1s steps(2) infinite",
+              }}
+            />
+          )}
+        </>
       )}
       {message.sources && message.sources.length > 0 && (
         <Sources sources={message.sources} />
       )}
+      {message.timings && !message.pending && (
+        <Timings timings={message.timings} />
+      )}
       <style>{`
         @keyframes glosse-caret { 50% { opacity: 0; } }
+        @keyframes glosse-dots {
+          0%, 20%  { opacity: 0.2; }
+          50%      { opacity: 1; }
+          80%, 100%{ opacity: 0.2; }
+        }
       `}</style>
+    </div>
+  );
+}
+
+function PhaseIndicator({ phase }: { phase: ChatPhase }) {
+  const label =
+    phase === "retrieving"
+      ? "Searching your book"
+      : phase === "thinking"
+        ? "Thinking"
+        : "";
+  return (
+    <span
+      style={{
+        fontStyle: "italic",
+        color: "var(--ink-muted)",
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: 2,
+      }}
+    >
+      {label}
+      <span
+        aria-hidden
+        style={{
+          display: "inline-flex",
+          gap: 2,
+          marginLeft: 4,
+        }}
+      >
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            style={{
+              width: 3,
+              height: 3,
+              borderRadius: 999,
+              background: "currentColor",
+              animation: `glosse-dots 1.2s ease-in-out ${i * 0.18}s infinite`,
+            }}
+          />
+        ))}
+      </span>
+    </span>
+  );
+}
+
+function Timings({ timings }: { timings: NonNullable<ChatMessage["timings"]> }) {
+  const { embedMs, searchMs, ttftMs, streamMs, totalMs, chars } = timings;
+  const tokPerSec =
+    streamMs > 0 ? Math.round((chars / 4) / (streamMs / 1000)) : 0;
+  const parts = [
+    `embed ${embedMs}ms`,
+    `search ${searchMs}ms`,
+    `ttft ${(ttftMs / 1000).toFixed(2)}s`,
+    `stream ${(streamMs / 1000).toFixed(2)}s`,
+    `≈${tokPerSec} tok/s`,
+    `total ${(totalMs / 1000).toFixed(2)}s`,
+  ];
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        paddingTop: 6,
+        borderTop: "1px dashed var(--rule-soft)",
+        fontFamily: "var(--mono-stack)",
+        fontSize: 10.5,
+        color: "var(--ink-muted)",
+        opacity: 0.75,
+      }}
+      title="embed: query vectorisation · search: vector+FTS fusion · ttft: time to first token from LLM · stream: total generation · tok/s is approximate (chars/4)"
+    >
+      {parts.join(" · ")}
     </div>
   );
 }

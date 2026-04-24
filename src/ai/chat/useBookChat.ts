@@ -26,6 +26,15 @@ import {
   shouldHydrateConversation,
 } from "./lifecycle";
 
+export type ChatMessageTimings = {
+  embedMs: number;
+  searchMs: number;
+  ttftMs: number;
+  streamMs: number;
+  totalMs: number;
+  chars: number;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -34,6 +43,8 @@ export type ChatMessage = {
   sources?: RetrievedChunk[];
   /** True while tokens are still streaming in. */
   pending?: boolean;
+  /** Performance breakdown, attached once the assistant message finishes. */
+  timings?: ChatMessageTimings;
 };
 
 export type UseBookChatInput = {
@@ -45,9 +56,16 @@ export type UseBookChatInput = {
   enabled?: boolean;
 };
 
+export type ChatPhase =
+  | "idle"
+  | "retrieving"
+  | "thinking"
+  | "streaming";
+
 export type UseBookChatResult = {
   messages: ChatMessage[];
   loading: boolean;
+  phase: ChatPhase;
   error: string | null;
   conversationId: string | null;
   send: (text: string, focus?: ReadingFocus) => Promise<boolean>;
@@ -77,8 +95,9 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<ChatPhase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const loading = phase !== "idle";
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -116,7 +135,7 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
   const abort = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    setLoading(false);
+    setPhase("idle");
   }, []);
 
   const send = useCallback(
@@ -126,7 +145,7 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
 
       const settings = useAISettings.getState();
       setError(null);
-      setLoading(true);
+      setPhase("retrieving");
 
       const optimisticIds = {
         userId: `local_${crypto.randomUUID()}`,
@@ -150,6 +169,9 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
           createOptimisticTurn(prev, optimisticIds, trimmed),
         );
 
+        const turnStartedAt = performance.now();
+        let retrievalEmbedMs = 0;
+        let retrievalSearchMs = 0;
         const [passages, profile, conversationSummary] = await Promise.all([
           hybridRetrieve({
             bookId,
@@ -158,6 +180,10 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
             currentPage,
             topK: settings.maxContextChunks,
             maxPage: settings.spoilerProtection ? currentPage : undefined,
+            onTimings: (t) => {
+              retrievalEmbedMs = t.embedMs;
+              retrievalSearchMs = t.searchMs;
+            },
           }),
           getProfile(),
           getConversationSummary(activeConversationId),
@@ -181,6 +207,7 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
           .slice(-RECENT_HISTORY_MESSAGES)
           .map((m) => ({ role: m.role, content: m.content }));
 
+        setPhase("thinking");
         const result = streamText({
           model: getChatProvider(settings.chatModel),
           system: systemPrompt,
@@ -188,8 +215,14 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
           abortSignal: controller.signal,
         });
 
+        const streamStartedAt = performance.now();
+        let firstTokenAt = 0;
         let acc = "";
         for await (const delta of result.textStream) {
+          if (firstTokenAt === 0) {
+            firstTokenAt = performance.now();
+            setPhase("streaming");
+          }
           acc += delta;
           setMessages((prev) => {
             const copy = [...prev];
@@ -207,6 +240,20 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
           });
         }
 
+        const finishedAt = performance.now();
+        const timings: ChatMessageTimings = {
+          embedMs: Math.round(retrievalEmbedMs),
+          searchMs: Math.round(retrievalSearchMs),
+          ttftMs: Math.round(
+            firstTokenAt > 0 ? firstTokenAt - streamStartedAt : 0,
+          ),
+          streamMs: Math.round(
+            firstTokenAt > 0 ? finishedAt - firstTokenAt : 0,
+          ),
+          totalMs: Math.round(finishedAt - turnStartedAt),
+          chars: acc.length,
+        };
+
         setMessages((prev) => {
           const copy = [...prev];
           const idx = copy.findIndex(
@@ -218,6 +265,7 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
               content: acc,
               pending: false,
               sources: passages,
+              timings,
             };
           }
           return copy;
@@ -261,7 +309,7 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
         return false;
       } finally {
         abortRef.current = null;
-        setLoading(false);
+        setPhase("idle");
       }
     },
     [
@@ -271,11 +319,20 @@ export function useBookChat(input: UseBookChatInput): UseBookChatResult {
       bookTitle,
       conversationId,
       currentPage,
-      loading,
+      phase,
       messages,
       totalPages,
     ],
   );
 
-  return { messages, loading, error, conversationId, send, abort, reload };
+  return {
+    messages,
+    loading,
+    phase,
+    error,
+    conversationId,
+    send,
+    abort,
+    reload,
+  };
 }
