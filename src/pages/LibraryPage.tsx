@@ -9,7 +9,7 @@ import {
   getProgress,
   listBooks,
   putBook,
-  type BookRecord,
+  type BookListEntry,
   type ProgressRecord,
 } from "@/lib/db";
 import { makeBookId, readBookMeta } from "@/lib/epub-ingest";
@@ -17,7 +17,9 @@ import { SUPPORTED_ACCEPT, SUPPORTED_EXT_REGEX } from "@/lib/formats";
 
 type View = "grid" | "list";
 
-type BookWithProgress = BookRecord & { progress: ProgressRecord | undefined };
+type BookWithProgress = BookListEntry & {
+  progress: ProgressRecord | undefined;
+};
 
 export function LibraryPage() {
   const [books, setBooks] = useState<BookWithProgress[] | null>(null);
