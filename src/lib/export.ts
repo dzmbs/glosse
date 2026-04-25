@@ -1,13 +1,14 @@
 import { getDb } from "@/ai/db/client";
 import {
   listBooks,
+  getBook,
   getProgress,
   putBook,
   setProgress,
   type BookRecord,
 } from "@/lib/db";
 
-const EXPORT_VERSION = 1;
+const EXPORT_VERSION = 2;
 
 export type GlosseExport = {
   version: number;
@@ -84,18 +85,25 @@ export async function downloadExport(filename?: string): Promise<void> {
 }
 
 async function serializeBooks(): Promise<GlosseExport["books"]> {
-  const list: BookRecord[] = await listBooks();
+  const list = await listBooks();
   const out: GlosseExport["books"] = [];
-  for (const b of list) {
+  for (const entry of list) {
+    const full = await getBook(entry.id);
+    if (!full) {
+      console.warn(
+        `[export] skipping "${entry.title}" (${entry.id}): metadata exists but file blob is missing`,
+      );
+      continue;
+    }
     out.push({
-      id: b.id,
-      title: b.title,
-      author: b.author,
-      addedAt: b.addedAt,
-      fileB64: await blobToBase64(b.file),
-      fileMime: b.file.type || null,
-      coverB64: b.coverBlob ? await blobToBase64(b.coverBlob) : null,
-      coverMime: b.coverBlob?.type ?? null,
+      id: full.id,
+      title: full.title,
+      author: full.author,
+      addedAt: full.addedAt,
+      fileB64: await blobToBase64(full.file),
+      fileMime: full.file.type || null,
+      coverB64: full.coverBlob ? await blobToBase64(full.coverBlob) : null,
+      coverMime: full.coverBlob?.type ?? null,
     });
   }
   return out;
@@ -273,17 +281,14 @@ export async function importFromJson(raw: string): Promise<ImportSummary> {
       [
         "id",
         "book_id",
+        "source_cfi",
+        "source_chunk_id",
         "front",
         "back",
         "explanation",
-        "source_cfi",
-        "source_page",
-        "due",
-        "stability",
-        "difficulty",
-        "lapses",
-        "state",
-        "last_review",
+        "fsrs_state",
+        "due_at",
+        "last_reviewed_at",
         "created_at",
       ],
       data.aiTables.reviewCards,
@@ -303,39 +308,58 @@ export async function importFromJson(raw: string): Promise<ImportSummary> {
     summary.messages = await restoreTable(
       db,
       "messages",
-      [
-        "id",
-        "conversation_id",
-        "role",
-        "content",
-        "focus_json",
-        "sources_json",
-        "created_at",
-      ],
+      ["id", "conversation_id", "role", "content", "created_at"],
       data.aiTables.messages,
     );
     summary.bookIndex = await restoreTable(
       db,
       "book_index",
-      ["book_id", "embedding_model", "chunk_count", "last_indexed_at"],
+      [
+        "book_id",
+        "title",
+        "author",
+        "total_chunks",
+        "total_sections",
+        "embedding_model",
+        "indexed_at",
+        "embedding_provider",
+        "embedding_model_id",
+        "embedding_dim",
+      ],
       data.aiTables.bookIndex,
     );
     summary.readerProfile = await restoreTable(
       db,
       "reader_profile",
-      ["id", "profile_json", "updated_at"],
+      [
+        "id",
+        "preferred_quiz_style",
+        "answer_style",
+        "weak_concepts",
+        "interests",
+        "tone",
+        "updated_at",
+      ],
       data.aiTables.readerProfile,
     );
     summary.readingEvents = await restoreTable(
       db,
       "reading_events",
-      ["id", "book_id", "kind", "page_number", "created_at"],
+      [
+        "id",
+        "book_id",
+        "kind",
+        "page_number",
+        "section_index",
+        "duration_ms",
+        "occurred_at",
+      ],
       data.aiTables.readingEvents,
     );
     summary.conversationSummaries = await restoreTable(
       db,
       "conversation_summaries",
-      ["conversation_id", "summary", "message_count", "updated_at"],
+      ["conversation_id", "summary_json", "turns_summarized", "updated_at"],
       data.aiTables.conversationSummaries,
     );
   } catch (err) {
@@ -363,9 +387,12 @@ function parseExport(raw: string): GlosseExport {
     throw new Error("Backup file is empty or not an object.");
   }
   const obj = data as Partial<GlosseExport>;
-  if (typeof obj.version !== "number" || obj.version > EXPORT_VERSION) {
+  if (typeof obj.version !== "number") {
+    throw new Error("Backup is missing a `version` field.");
+  }
+  if (obj.version !== EXPORT_VERSION) {
     throw new Error(
-      `Unknown export version ${obj.version} — this build only reads version ${EXPORT_VERSION}.`,
+      `Backup version ${obj.version} is incompatible with this build (expects version ${EXPORT_VERSION}). Re-export from a build that matches.`,
     );
   }
   if (!Array.isArray(obj.books) || !Array.isArray(obj.progress)) {
@@ -404,14 +431,24 @@ async function restoreTable(
     `INSERT OR REPLACE INTO ${table} (${cols.join(", ")}) VALUES (${placeholders})`,
   );
   let n = 0;
+  let firstError: unknown;
+  let failed = 0;
   for (const row of rows) {
     const args = cols.map((c) => row[c] ?? null);
     try {
       await stmt.run(...args);
       n++;
-    } catch {
-      // One bad row shouldn't abort the whole table — keep going.
+    } catch (err) {
+      failed++;
+      if (firstError === undefined) firstError = err;
     }
+  }
+  if (failed > 0) {
+    const detail =
+      firstError instanceof Error ? firstError.message : String(firstError);
+    console.warn(
+      `[restore] ${table}: ${failed}/${rows.length} rows failed — first error: ${detail}`,
+    );
   }
   return n;
 }
