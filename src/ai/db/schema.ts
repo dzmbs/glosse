@@ -35,6 +35,13 @@ export function embeddingTableFor(dim: SupportedEmbeddingDim): string {
   return `chunk_embeddings_${dim}`;
 }
 
+export type BookRow = {
+  id: string;
+  title: string;
+  author: string;
+  added_at: number;
+};
+
 export type ChunkRow = {
   id: number;
   book_id: string;

@@ -16,13 +16,28 @@ import {
  * old-shape rebuild migration entirely.
  */
 export async function runMigrations(db: Database): Promise<void> {
+  await db.exec(
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+       version TEXT PRIMARY KEY,
+       applied_at INTEGER NOT NULL DEFAULT (unixepoch())
+     )`,
+  );
+
+  await dropPreBooksSchema(db);
+
   const baseStatements: string[] = [
-    // `chunks` stores text + metadata only. Embeddings live in per-dim
-    // tables (below) so each column can stay `F32_BLOB(N) NOT NULL`
-    // without nullable typed-vector gymnastics.
+    `CREATE TABLE IF NOT EXISTS books (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      author TEXT NOT NULL DEFAULT '',
+      added_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )`,
+
+    // Embeddings live in per-dim tables below so each column can stay
+    // F32_BLOB(N) NOT NULL.
     `CREATE TABLE IF NOT EXISTS chunks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      book_id TEXT NOT NULL,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       section_index INTEGER NOT NULL,
       chapter_title TEXT NOT NULL DEFAULT '',
       text TEXT NOT NULL,
@@ -35,7 +50,7 @@ export async function runMigrations(db: Database): Promise<void> {
     ...embeddingTableStatements(),
 
     `CREATE TABLE IF NOT EXISTS book_index (
-      book_id TEXT PRIMARY KEY,
+      book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       author TEXT NOT NULL DEFAULT '',
       total_chunks INTEGER NOT NULL,
@@ -46,7 +61,7 @@ export async function runMigrations(db: Database): Promise<void> {
 
     `CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
-      book_id TEXT NOT NULL,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       title TEXT NOT NULL DEFAULT 'New conversation',
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
@@ -55,7 +70,7 @@ export async function runMigrations(db: Database): Promise<void> {
 
     `CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
@@ -63,14 +78,14 @@ export async function runMigrations(db: Database): Promise<void> {
     `CREATE INDEX IF NOT EXISTS messages_conv_idx ON messages (conversation_id)`,
 
     `CREATE TABLE IF NOT EXISTS conversation_summaries (
-      conversation_id TEXT PRIMARY KEY,
+      conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
       summary_json TEXT NOT NULL,
       turns_summarized INTEGER NOT NULL,
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     )`,
 
     `CREATE TABLE IF NOT EXISTS chapter_summaries (
-      book_id TEXT NOT NULL,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       section_index INTEGER NOT NULL,
       chapter_title TEXT NOT NULL DEFAULT '',
       summary TEXT NOT NULL,
@@ -80,9 +95,9 @@ export async function runMigrations(db: Database): Promise<void> {
 
     `CREATE TABLE IF NOT EXISTS review_cards (
       id TEXT PRIMARY KEY,
-      book_id TEXT NOT NULL,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       source_cfi TEXT,
-      source_chunk_id INTEGER,
+      source_chunk_id INTEGER REFERENCES chunks(id) ON DELETE SET NULL,
       front TEXT NOT NULL,
       back TEXT NOT NULL,
       fsrs_state TEXT NOT NULL,
@@ -106,7 +121,7 @@ export async function runMigrations(db: Database): Promise<void> {
 
     `CREATE TABLE IF NOT EXISTS reading_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      book_id TEXT NOT NULL,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       kind TEXT NOT NULL,
       page_number INTEGER,
       section_index INTEGER,
@@ -118,7 +133,7 @@ export async function runMigrations(db: Database): Promise<void> {
 
     `CREATE TABLE IF NOT EXISTS highlights (
       id TEXT PRIMARY KEY,
-      book_id TEXT NOT NULL,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       cfi TEXT NOT NULL,
       text TEXT NOT NULL,
       note TEXT,
@@ -130,15 +145,10 @@ export async function runMigrations(db: Database): Promise<void> {
     `CREATE INDEX IF NOT EXISTS highlights_book_idx ON highlights (book_id, created_at DESC)`,
 
     `CREATE TABLE IF NOT EXISTS mind_maps (
-      book_id TEXT PRIMARY KEY,
+      book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
       data_json TEXT NOT NULL,
       max_page INTEGER NOT NULL,
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS schema_migrations (
-      version TEXT PRIMARY KEY,
-      applied_at INTEGER NOT NULL DEFAULT (unixepoch())
     )`,
   ];
 
@@ -200,6 +210,34 @@ export async function runMigrations(db: Database): Promise<void> {
   } catch (error) {
     console.warn("Skipping Turso FTS index setup:", error);
   }
+}
+
+export const BOOKS_TABLE_MIGRATION_ID = "2026-04-25/books-table-and-fks";
+
+const PRESERVED_TABLES = ["schema_migrations", "reader_profile"];
+
+async function dropPreBooksSchema(db: Database): Promise<void> {
+  const alreadyApplied = (await db
+    .prepare(`SELECT 1 AS done FROM schema_migrations WHERE version = ?`)
+    .get(BOOKS_TABLE_MIGRATION_ID)) as { done: number } | undefined;
+  if (alreadyApplied) return;
+
+  const rows = (await db
+    .prepare(
+      `SELECT name FROM sqlite_master
+       WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+    )
+    .all()) as Array<{ name: string }>;
+  const tablesToDrop = rows
+    .map((r) => r.name)
+    .filter((name) => !PRESERVED_TABLES.includes(name));
+
+  for (const table of tablesToDrop) {
+    await db.exec(`DROP TABLE IF EXISTS ${table}`);
+  }
+  await db
+    .prepare(`INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)`)
+    .run(BOOKS_TABLE_MIGRATION_ID);
 }
 
 function embeddingTableStatements(): string[] {
