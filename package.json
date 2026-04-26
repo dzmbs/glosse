@@ -7,6 +7,7 @@
     "dev": "vite",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "bench:local": "tsx bench/bench.ts",
+    "eval:answers": "tsx evals/answers/loop.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "postinstall": "node scripts/apply-patches.mjs"
