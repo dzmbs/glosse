@@ -57,6 +57,7 @@ type Location = {
   page: number | null;
   pageTotal: number | null;
   pageLabel: string | null;
+  tocLabel: string | null;
 };
 
 const EMPTY_LOCATION: Location = {
@@ -66,6 +67,7 @@ const EMPTY_LOCATION: Location = {
   page: null,
   pageTotal: null,
   pageLabel: null,
+  tocLabel: null,
 };
 
 export function ReaderPage() {
@@ -160,10 +162,16 @@ export function ReaderPage() {
     setSelection(ev);
   }, []);
 
-  const { activeId, ancestorIds, activeLabel } = useMemo(
+  const resolved = useMemo(
     () => resolveActiveToc(toc, location.href),
     [toc, location.href],
   );
+  // EPUB hrefs match cleanly via resolveActiveToc; PDFs encode TOC hrefs
+  // as JSON-stringified PDF destinations that won't match the relocate
+  // href, so foliate's own tocItem.label is the only signal we get for
+  // those. Prefer it when present.
+  const { activeId, ancestorIds } = resolved;
+  const activeLabel = resolved.activeLabel ?? location.tocLabel;
 
   const handleSelectionAction = useCallback(
     async (action: SelectionAction) => {
@@ -248,6 +256,7 @@ export function ReaderPage() {
         page: ev.page,
         pageTotal: ev.pageTotal,
         pageLabel: ev.pageLabel,
+        tocLabel: ev.tocLabel,
       });
 
       if (!bookId) return;
