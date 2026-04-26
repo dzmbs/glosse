@@ -5,26 +5,80 @@ import { connect, type Database } from "@tursodatabase/database-wasm/vite";
 
 import { runMigrations } from "./init";
 
-let dbPromise: Promise<Database> | null = null;
+const GLOBAL_KEY = "__glosseTursoDbPromise";
+type GlobalSlot = { [GLOBAL_KEY]?: Promise<Database> | null };
 
-export async function getDb(): Promise<Database> {
-  if (dbPromise) return dbPromise;
-  dbPromise = (async () => {
-    const db = await connect("glosse-ai.db");
-    // FK enforcement is off by default in SQLite; we need it on so the
-    // ON DELETE CASCADE from chunk_embeddings_<dim> → chunks(id) actually
-    // fires on re-index / delete. Must be set outside any transaction,
-    // so we do it before migrations run.
-    await db.exec("PRAGMA foreign_keys = ON");
-    await runMigrations(db);
-    return db;
-  })();
-  return dbPromise;
+function readSlot(): Promise<Database> | null {
+  return (globalThis as GlobalSlot)[GLOBAL_KEY] ?? null;
+}
+
+function writeSlot(value: Promise<Database> | null): void {
+  (globalThis as GlobalSlot)[GLOBAL_KEY] = value;
+}
+
+function isOpfsContention(err: unknown): boolean {
+  return err instanceof Error && err.name === "NoModificationAllowedError";
+}
+
+async function openOnce(): Promise<Database> {
+  const db = await connect("glosse-ai.db");
+  // Required for ON DELETE CASCADE; SQLite default is off.
+  await db.exec("PRAGMA foreign_keys = ON");
+  await runMigrations(db);
+  return db;
+}
+
+async function openWithRetry(): Promise<Database> {
+  const MAX_TRIES = 4;
+  let lastErr: unknown;
+  for (let i = 0; i < MAX_TRIES; i++) {
+    try {
+      return await openOnce();
+    } catch (err) {
+      lastErr = err;
+      if (!isOpfsContention(err)) throw err;
+      if (i < MAX_TRIES - 1) {
+        await new Promise((r) => setTimeout(r, 200 * (i + 1)));
+      }
+    }
+  }
+  throw new Error(
+    "Couldn't open the local database — another browser tab has glosse open. Close other tabs (or DevTools → Application → Storage → Clear site data) and reload.",
+    { cause: lastErr },
+  );
+}
+
+export function getDb(): Promise<Database> {
+  const existing = readSlot();
+  if (existing) return existing;
+  const promise = openWithRetry().catch((err) => {
+    if (readSlot() === promise) writeSlot(null);
+    throw err;
+  });
+  writeSlot(promise);
+  return promise;
 }
 
 export async function closeDb(): Promise<void> {
-  if (!dbPromise) return;
-  const db = await dbPromise;
-  await db.close();
-  dbPromise = null;
+  const existing = readSlot();
+  if (!existing) return;
+  writeSlot(null);
+  try {
+    const db = await existing;
+    await db.close();
+  } catch {
+    // open never resolved.
+  }
+}
+
+// Vite HMR respawns the turso worker; close first or the new worker
+// collides with the old worker's OPFS lock.
+type ViteHotImportMeta = ImportMeta & {
+  hot?: { dispose: (cb: () => void) => void };
+};
+const hot = (import.meta as ViteHotImportMeta).hot;
+if (hot) {
+  hot.dispose(() => {
+    void closeDb();
+  });
 }

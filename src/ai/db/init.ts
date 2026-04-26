@@ -207,8 +207,13 @@ export async function runMigrations(db: Database): Promise<void> {
       `CREATE INDEX IF NOT EXISTS chunks_search_idx
        ON chunks USING fts (text, chapter_title)`,
     );
-  } catch (error) {
-    console.warn("Skipping Turso FTS index setup:", error);
+  } catch (err) {
+    // Turso WASM 0.5.x has no experimental-index-method flag; vector
+    // search still works without FTS. Logged at debug so a future Turso
+    // build that breaks for a real reason isn't silently swallowed.
+    if (typeof console.debug === "function") {
+      console.debug("[glosse] FTS index unavailable:", err);
+    }
   }
 }
 
