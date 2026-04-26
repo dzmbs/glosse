@@ -1,0 +1,19 @@
+diff --git a/pdf.js b/pdf.js
+index c998bf4..b48d64f 100644
+--- a/pdf.js
++++ b/pdf.js
+@@ -1,10 +1,12 @@
+-const pdfjsPath = path => new URL(`vendor/pdfjs/${path}`, import.meta.url).toString()
++// Static interpolation; a template literal makes Vite glob ./vendor/pdfjs/*.
++const pdfjsPath = path => new URL('./vendor/pdfjs/' + path, import.meta.url).toString()
+ 
+ import './vendor/pdfjs/pdf.mjs'
+ const pdfjsLib = globalThis.pdfjsLib
+ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsPath('pdf.worker.mjs')
+ 
+-const fetchText = async url => await (await fetch(url)).text()
++// '?raw' bypasses Vite's CSS transform, which otherwise returns JS that injects a <style> on the parent.
++const fetchText = async url => await (await fetch(url + '?raw')).text()
+ 
+ // https://raw.githubusercontent.com/mozilla/pdf.js/refs/tags/v5.5.207/web/text_layer_builder.css
+ const textLayerBuilderCSS = await fetchText(pdfjsPath('text_layer_builder.css'))

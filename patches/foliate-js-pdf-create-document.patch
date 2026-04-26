@@ -1,0 +1,29 @@
+diff --git a/pdf.js b/pdf.js
+index c998bf4..02f368c 100644
+--- a/pdf.js
++++ b/pdf.js
+@@ -157,6 +157,24 @@ export const makePDF = async file => {
+             return url
+         },
+         size: 1000,
++        // Text-only Document via TextContent API — no canvas/image decode.
++        createDocument: async () => {
++            const page = await pdf.getPage(i + 1)
++            const textContent = await page.getTextContent()
++            const parts = []
++            for (const item of textContent.items) {
++                if ('str' in item) {
++                    parts.push(item.str)
++                    if (item.hasEOL) parts.push('\n')
++                }
++            }
++            const dom = new DOMParser().parseFromString(
++                '<!DOCTYPE html><html><body></body></html>',
++                'text/html',
++            )
++            dom.body.textContent = parts.join(' ')
++            return dom
++        },
+     }))
+     book.isExternal = uri => /^\w+:/i.test(uri)
+     book.resolveHref = async href => {
