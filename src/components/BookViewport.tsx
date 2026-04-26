@@ -21,6 +21,7 @@ import type {
   FoliateTocItem,
   FoliateView,
 } from "@/lib/foliate";
+import { extractPdfToc, parsePdfTocHref } from "@/lib/pdfTocExtractor";
 
 export type TocItem = {
   id: string;
@@ -86,6 +87,24 @@ type Props = {
   /** "auto" = up to 2 columns when wide; "none" = always 1 column. */
   spread: "auto" | "none";
 };
+
+// Returns true once the count reaches `min`, short-circuiting the walk.
+function tocHasAtLeast(
+  items: FoliateTocItem[] | null | undefined,
+  min: number,
+): boolean {
+  if (!items) return false;
+  let total = 0;
+  const walk = (xs: FoliateTocItem[]): boolean => {
+    for (const x of xs) {
+      total += 1;
+      if (total >= min) return true;
+      if (x.subitems && walk(x.subitems)) return true;
+    }
+    return false;
+  };
+  return walk(items);
+}
 
 function normalizeToc(items: FoliateTocItem[] | undefined, path = "0"): TocItem[] {
   if (!items) return [];
@@ -256,6 +275,34 @@ export const BookViewport = forwardRef<BookViewportHandle, Props>(
           }
 
           const book = view.book;
+          // For PDFs whose embedded outline is empty or degenerate
+          // (DjVu→PDF conversions, OCR'd scans, older academic PDFs),
+          // For PDFs whose embedded outline is empty or degenerate,
+          // reconstruct the TOC from the printed contents page geometry
+          // and route our `pdf-toc:<idx>` hrefs through book.resolveHref.
+          const pdf = book?.pdf;
+          if (pdf && book && !tocHasAtLeast(book.toc, 5) && !cancelled) {
+            const result = await extractPdfToc(pdf).catch(() => null);
+            if (!cancelled && result && result.toc.length >= 5) {
+              book.toc = result.toc;
+              const origResolve = book.resolveHref?.bind(book);
+              book.resolveHref = async (href: string) => {
+                const idx = parsePdfTocHref(href);
+                if (idx !== null) return { index: idx };
+                return origResolve?.(href);
+              };
+              const bookWithSplit = book as typeof book & {
+                splitTOCHref?: (href: string) => unknown;
+              };
+              const origSplit = bookWithSplit.splitTOCHref?.bind(book);
+              bookWithSplit.splitTOCHref = async (href: string) => {
+                const idx = parsePdfTocHref(href);
+                if (idx !== null) return [idx, null];
+                return origSplit?.(href);
+              };
+            }
+          }
+
           onReady?.({
             toc: normalizeToc(book?.toc),
             title: extractTitle(book?.metadata),
