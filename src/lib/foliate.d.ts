@@ -30,7 +30,30 @@ export type FoliateBook = {
   };
   rendition?: { layout?: string };
   getCover?: () => Promise<Blob | null>;
-  resolveHref?: (href: string) => { index: number } | undefined;
+  resolveHref?: (
+    href: string,
+  ) =>
+    | { index: number }
+    | undefined
+    | Promise<{ index: number } | undefined>;
+  // Present only for PDFs, exposed by our foliate-js patch. Used to
+  // reconstruct the TOC when the embedded outline is degenerate.
+  pdf?: FoliatePdf;
+};
+
+export type FoliatePdf = {
+  numPages: number;
+  getPage: (n: number) => Promise<{
+    getTextContent: () => Promise<{
+      items: Array<{
+        str: string;
+        transform: number[];
+        width: number;
+        height: number;
+        hasEOL?: boolean;
+      }>;
+    }>;
+  }>;
 };
 
 export type FoliateRelocateDetail = {

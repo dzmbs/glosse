@@ -10,6 +10,7 @@ const PATCHES = [
   "patches/foliate-js-pdf-vite-assets.patch",
   "patches/foliate-js-pdf-text-selection.patch",
   "patches/foliate-js-pdf-create-document.patch",
+  "patches/foliate-js-pdf-expose-pdf.patch",
 ];
 
 if (!existsSync(SENTINEL)) {

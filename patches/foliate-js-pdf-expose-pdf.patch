@@ -1,0 +1,11 @@
+--- a/pdf.js	2026-04-26 22:12:15
++++ b/pdf.js	2026-04-26 22:12:21
+@@ -194,5 +194,8 @@
+     book.getTOCFragment = doc => doc.documentElement
+     book.getCover = async () => renderPage(await pdf.getPage(1), true)
+     book.destroy = () => pdf.destroy()
++    // Expose the underlying pdfjs document so the host app can reconstruct
++    // the TOC from page text geometry when the embedded outline is degenerate.
++    book.pdf = pdf
+     return book
+ }
