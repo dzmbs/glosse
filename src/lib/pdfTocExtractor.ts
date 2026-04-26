@@ -289,11 +289,18 @@ function readContinuationText(
   const last = sorted[sorted.length - 1];
   // A real continuation has no trailing page-number-shaped item.
   if (PAGE_NUM_RE.test(last.str.trim())) return null;
+  if (INLINE_TOC_RE.test(last.str)) return null;
   const text = collapseSpace(stripTrailingLeaders(sorted.map((it) => it.str).join(" ")));
   if (text.length < 2 || /^[.\s…]+$/.test(text)) return null;
   if (/^contents$|^table of contents$/i.test(text)) return null;
   return { text, leftX: sorted[0].transform[4] };
 }
+
+// Matches TOC lines whose entire content (title, leaders, and page
+// number) was emitted as a single text item, e.g. "Title ........ 47".
+// Captures the title up to the leader run and the trailing number.
+const INLINE_TOC_RE =
+  /^(.+?)\s*(?:[\.…]\s*){2,}\s*(\d{1,4}|[ivxlcdm]{1,8})\s*$/i;
 
 function parseTocLine(
   line: PdfTextItem[],
@@ -303,47 +310,54 @@ function parseTocLine(
 
   const sorted = line.slice().sort((a, b) => a.transform[4] - b.transform[4]);
   const last = sorted[sorted.length - 1];
-  const lastStr = last.str.trim();
-  if (!PAGE_NUM_RE.test(lastStr)) return null;
 
-  const titleItems = sorted.slice(0, -1);
-  if (titleItems.length === 0) return null;
+  // Two emission patterns: (a) page number is its own item at the right;
+  // (b) title + leaders + page number are all inside a single wide item.
+  let pageNumStr: string | null = null;
+  let titleClean: string | null = null;
+  let leftX = sorted[0].transform[4];
 
-  const titleClean = collapseSpace(stripTrailingLeaders(titleItems.map((it) => it.str).join(" ")));
-  if (titleClean.length < 2) return null;
-  if (/^[.\s…]+$/.test(titleClean)) return null;
-  // Pure numerics — typically footnote references, not titles.
-  if (/^\d+$/.test(titleClean)) return null;
-
-  // The title and page number must be visually separated. Walk past
-  // leader items (whitespace or dots) to the real title's right edge —
-  // many PDFs encode the leader as a single very-wide space, so naive
-  // `beforeLast.width` would close the gap entirely. If the leader is
-  // glued onto the title item itself, the gap collapses and we accept on
-  // the inline-dot pattern instead.
-  const pageLeftX = last.transform[4];
-  let titleRightX = sorted[0].transform[4];
-  for (let j = sorted.length - 2; j >= 0; j--) {
-    const it = sorted[j];
-    if (!isLeaderItem(it.str)) {
-      titleRightX = it.transform[4] + (it.width ?? 0);
-      break;
+  if (PAGE_NUM_RE.test(last.str.trim())) {
+    pageNumStr = last.str.trim();
+    const titleItems = sorted.slice(0, -1);
+    if (titleItems.length === 0) return null;
+    titleClean = collapseSpace(
+      stripTrailingLeaders(titleItems.map((it) => it.str).join(" ")),
+    );
+    // Visually separated? Either explicit gap from non-leader title item,
+    // or inline `. . .` leaders within the joined string.
+    const pageLeftX = last.transform[4];
+    let titleRightX = sorted[0].transform[4];
+    for (let j = sorted.length - 2; j >= 0; j--) {
+      const it = sorted[j];
+      if (!isLeaderItem(it.str)) {
+        titleRightX = it.transform[4] + (it.width ?? 0);
+        break;
+      }
     }
+    const gap = pageLeftX - titleRightX;
+    const wholeLineText = line.map((it) => it.str).join("");
+    const hasInlineLeaders = /\.\s*\.\s*\.|…/.test(wholeLineText);
+    if (gap < 20 && !hasInlineLeaders) return null;
+  } else {
+    const m = INLINE_TOC_RE.exec(last.str);
+    if (!m) return null;
+    pageNumStr = m[2];
+    const titleHead = sorted
+      .slice(0, -1)
+      .map((it) => it.str)
+      .join(" ");
+    titleClean = collapseSpace(stripTrailingLeaders(`${titleHead} ${m[1]}`));
   }
-  const gap = pageLeftX - titleRightX;
-  const wholeLineText = line.map((it) => it.str).join("");
-  const hasInlineLeaders = /\.\s*\.\s*\.|…/.test(wholeLineText);
-  if (gap < 20 && !hasInlineLeaders) return null;
 
-  // Title shouldn't be excessively long — body lines that survive the
-  // gap check tend to be much wider than typical TOC entries.
+  if (!titleClean || titleClean.length < 2) return null;
+  if (/^[.\s…]+$/.test(titleClean)) return null;
+  if (/^\d+$/.test(titleClean)) return null;
   if (titleClean.length > 160) return null;
 
-  const isRoman = ROMAN_RE.test(lastStr);
-  const pageNumber = isRoman ? romanToInt(lastStr) : parseInt(lastStr, 10);
+  const isRoman = ROMAN_RE.test(pageNumStr);
+  const pageNumber = isRoman ? romanToInt(pageNumStr) : parseInt(pageNumStr, 10);
   if (!Number.isFinite(pageNumber) || pageNumber <= 0) return null;
-
-  const leftX = sorted[0].transform[4];
 
   return {
     title: titleClean,
