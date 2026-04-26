@@ -37,7 +37,7 @@ export async function extractSections(book: FoliateBook): Promise<SectionSource[
     if (label) lastChapter = label;
 
     const doc = await section.createDocument();
-    const text = extractText(doc);
+    const text = extractSectionText(doc);
     if (!text) continue;
 
     out.push({
@@ -50,8 +50,10 @@ export async function extractSections(book: FoliateBook): Promise<SectionSource[
   return out;
 }
 
-function extractText(doc: Document): string {
-  const clone = doc.body.cloneNode(true) as HTMLElement;
+export function extractSectionText(doc: Document): string {
+  const root = doc.body ?? doc.documentElement;
+  if (!root) return "";
+  const clone = root.cloneNode(true) as HTMLElement;
   for (const tag of ["script", "style", "nav", "header", "footer"]) {
     clone.querySelectorAll(tag).forEach((el) => el.remove());
   }
