@@ -91,19 +91,21 @@ async function runOne(filePath: string) {
       `resolved=${result.diagnostics.resolvedEntries}, ` +
       `levels=${result.diagnostics.indentLevels.length}`,
   );
-  for (const line of flat.slice(0, 60)) console.log(line);
-  if (flat.length > 60) console.log(`... +${flat.length - 60} more`);
+  const max = parseInt(process.env.GLOSSE_TOC_MAX ?? "60", 10);
+  for (const line of flat.slice(0, max)) console.log(line);
+  if (flat.length > max) console.log(`... +${flat.length - max} more`);
 }
 
 async function main() {
   const args = process.argv.slice(2);
   const fixtures: string[] = [];
-  if (existsSync(FIXTURE_DIR)) {
+  if (args.length > 0) {
+    fixtures.push(...args);
+  } else if (existsSync(FIXTURE_DIR)) {
     for (const f of readdirSync(FIXTURE_DIR)) {
       if (f.endsWith(".pdf")) fixtures.push(join(FIXTURE_DIR, f));
     }
   }
-  for (const a of args) fixtures.push(a);
 
   if (fixtures.length === 0) {
     console.error("no PDFs found in", FIXTURE_DIR);

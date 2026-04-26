@@ -288,7 +288,8 @@ function readContinuationText(
   const sorted = line.slice().sort((a, b) => a.transform[4] - b.transform[4]);
   const last = sorted[sorted.length - 1];
   // A real continuation has no trailing page-number-shaped item.
-  if (PAGE_NUM_RE.test(last.str.trim())) return null;
+  const lastTrimmed = last.str.replace(/^[.\s…]+|[.\s…]+$/g, "");
+  if (PAGE_NUM_RE.test(lastTrimmed)) return null;
   if (INLINE_TOC_RE.test(last.str)) return null;
   const text = collapseSpace(stripTrailingLeaders(sorted.map((it) => it.str).join(" ")));
   if (text.length < 2 || /^[.\s…]+$/.test(text)) return null;
@@ -296,11 +297,12 @@ function readContinuationText(
   return { text, leftX: sorted[0].transform[4] };
 }
 
-// Matches TOC lines whose entire content (title, leaders, and page
-// number) was emitted as a single text item, e.g. "Title ........ 47".
-// Captures the title up to the leader run and the trailing number.
+// Matches TOC lines once title + leaders + page number are joined into
+// one string. The page-number capture allows interior whitespace because
+// pdfjs sometimes splits "47" across items as ".....4" + "7" (which
+// joins to ".....4 7"); the caller collapses the captured whitespace.
 const INLINE_TOC_RE =
-  /^(.+?)\s*(?:[\.…]\s*){2,}\s*(\d{1,4}|[ivxlcdm]{1,8})\s*$/i;
+  /^(.+?)\s*(?:[\.…]\s*){2,}\s*([\d\s]{1,8}|[ivxlcdm]{1,8})\s*$/i;
 
 function parseTocLine(
   line: PdfTextItem[],
@@ -309,25 +311,35 @@ function parseTocLine(
   if (line.length === 0) return null;
 
   const sorted = line.slice().sort((a, b) => a.transform[4] - b.transform[4]);
-  const last = sorted[sorted.length - 1];
+  const leftX = sorted[0].transform[4];
 
-  // Two emission patterns: (a) page number is its own item at the right;
-  // (b) title + leaders + page number are all inside a single wide item.
   let pageNumStr: string | null = null;
   let titleClean: string | null = null;
-  let leftX = sorted[0].transform[4];
 
-  if (PAGE_NUM_RE.test(last.str.trim())) {
-    pageNumStr = last.str.trim();
+  // First try the joined whole-line text against the inline regex. This
+  // handles every variant where the page number was emitted alongside
+  // its leaders — including pdfjs splitting "47" across items as
+  // "....4" + "7" or bleeding a leading dot into "40" → ".40".
+  const joined = sorted.map((it) => it.str).join("");
+  const inline = INLINE_TOC_RE.exec(joined);
+  if (inline) {
+    pageNumStr = inline[2].replace(/\s+/g, "");
+    if (!PAGE_NUM_RE.test(pageNumStr)) return null;
+    titleClean = collapseSpace(stripTrailingLeaders(inline[1]));
+  } else {
+    // Fall back: the page number is a clean separate item at the right
+    // (no inline leaders), and visual separation comes from a real gap.
+    const last = sorted[sorted.length - 1];
+    const lastTrimmed = last.str.replace(/^[.\s…]+|[.\s…]+$/g, "");
+    if (!PAGE_NUM_RE.test(lastTrimmed)) return null;
     const titleItems = sorted.slice(0, -1);
     if (titleItems.length === 0) return null;
+    pageNumStr = lastTrimmed;
     titleClean = collapseSpace(
       stripTrailingLeaders(titleItems.map((it) => it.str).join(" ")),
     );
-    // Visually separated? Either explicit gap from non-leader title item,
-    // or inline `. . .` leaders within the joined string.
     const pageLeftX = last.transform[4];
-    let titleRightX = sorted[0].transform[4];
+    let titleRightX = leftX;
     for (let j = sorted.length - 2; j >= 0; j--) {
       const it = sorted[j];
       if (!isLeaderItem(it.str)) {
@@ -335,19 +347,7 @@ function parseTocLine(
         break;
       }
     }
-    const gap = pageLeftX - titleRightX;
-    const wholeLineText = line.map((it) => it.str).join("");
-    const hasInlineLeaders = /\.\s*\.\s*\.|…/.test(wholeLineText);
-    if (gap < 20 && !hasInlineLeaders) return null;
-  } else {
-    const m = INLINE_TOC_RE.exec(last.str);
-    if (!m) return null;
-    pageNumStr = m[2];
-    const titleHead = sorted
-      .slice(0, -1)
-      .map((it) => it.str)
-      .join(" ");
-    titleClean = collapseSpace(stripTrailingLeaders(`${titleHead} ${m[1]}`));
+    if (pageLeftX - titleRightX < 20) return null;
   }
 
   if (!titleClean || titleClean.length < 2) return null;
