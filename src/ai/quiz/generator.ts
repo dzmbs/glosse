@@ -111,3 +111,77 @@ function buildRetrievalQuery(
   );
 }
 
+export type GenerateFlashcardsFromPassageOptions = {
+  bookId: string;
+  bookTitle: string;
+  bookAuthor: string;
+  passage: string;
+  pageNumber: number;
+  chapterTitle: string | null;
+  /** CFI to anchor every produced card so review can jump back. */
+  sourceCfi: string;
+  /** Defaults to 2 — short selections rarely yield more distinct cards. */
+  count?: number;
+  difficulty?: StudyDifficulty;
+};
+
+/**
+ * Generate flashcards from a single user-selected passage, bypassing
+ * retrieval. Saves the cards to the FSRS deck and returns them.
+ */
+export async function generateFlashcardsFromPassage(
+  opts: GenerateFlashcardsFromPassageOptions,
+): Promise<QuizCard[]> {
+  const count = opts.count ?? 2;
+  const difficulty: StudyDifficulty = opts.difficulty ?? "medium";
+  const chapterTitle = opts.chapterTitle ?? "the current section";
+  const profile = await getProfile();
+
+  const synthetic: RetrievedChunk = {
+    chunkId: -1,
+    text: opts.passage,
+    pageNumber: opts.pageNumber,
+    sectionIndex: 0,
+    chapterTitle,
+    score: 1,
+  };
+
+  const scope: StudyScope = {
+    kind: "chapter",
+    chapterTitle,
+    titles: [chapterTitle],
+    narrowedTo: "this passage",
+    maxPage: opts.pageNumber,
+  };
+
+  const system = buildFlashcardsSystemPrompt({
+    bookTitle: opts.bookTitle,
+    bookAuthor: opts.bookAuthor,
+    scope,
+    difficulty,
+    tone: profile.tone,
+    passages: [synthetic],
+  });
+  const userPrompt = buildFlashcardsUserPrompt({
+    count,
+    difficulty,
+    focusBits: [],
+    scope,
+  });
+
+  const { object } = await generateStructuredChat("flashcards", {
+    schema: FlashcardsSchema,
+    system,
+    prompt: userPrompt,
+  });
+
+  const inputs: NewCardInput[] = object.cards.map((c) => ({
+    bookId: opts.bookId,
+    front: c.front,
+    back: c.back,
+    explanation: c.explanation,
+    sourceChunkId: null,
+    sourceCfi: opts.sourceCfi,
+  }));
+  return insertCards(inputs);
+}
