@@ -22,9 +22,7 @@ export {
 } from "./profile";
 export {
   generateFlashcards,
-  generateFlashcardsFromPassage,
   type GenerateFlashcardsOptions,
-  type GenerateFlashcardsFromPassageOptions,
   type StudyDifficulty,
   type StudyScope,
 } from "./quiz/generator";
@@ -45,9 +43,7 @@ export {
 } from "./study/topics";
 export {
   generateQuizSession,
-  generateQuizFromPassage,
   type GenerateQuizOptions,
-  type GenerateQuizFromPassageOptions,
   type QuizQuestion,
   type McqQuestion,
   type TfQuestion,

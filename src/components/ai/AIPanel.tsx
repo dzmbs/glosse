@@ -7,7 +7,6 @@ import { QuizBody } from "@/components/ai/QuizBody";
 import { MapBody } from "@/components/ai/MapBody";
 import { HighlightsBody } from "@/components/ai/HighlightsBody";
 import type { ReadingFocus } from "@/ai/types";
-import type { QuizQuestion } from "@/ai";
 import type { TocStructure, ChapterInfo, SectionInfo } from "@/lib/tocStructure";
 import type { Highlight } from "@/ai/highlights";
 
@@ -30,12 +29,7 @@ type Props = {
   foliateBook: unknown | null;
   highlights: Highlight[];
   seedFocus?: ReadingFocus | null;
-  /** Pre-built quiz from a selection action. Cleared once consumed. */
-  seedQuiz?: QuizQuestion[] | null;
-  /** Bump after selection-driven card insertion to refresh deck counts. */
-  cardsRefreshKey?: number;
   onSeedConsumed?: () => void;
-  onQuizSeedConsumed?: () => void;
   onJumpToHighlight?: (cfi: string) => void;
   onHighlightRemoved?: (id: string) => void;
 };
@@ -65,10 +59,7 @@ export function AIPanel({
   foliateBook,
   highlights,
   seedFocus,
-  seedQuiz,
-  cardsRefreshKey,
   onSeedConsumed,
-  onQuizSeedConsumed,
   onJumpToHighlight,
   onHighlightRemoved,
 }: Props) {
@@ -131,7 +122,6 @@ export function AIPanel({
             tocStructure={tocStructure}
             activeChapter={activeChapter}
             activeSection={activeSection}
-            refreshKey={cardsRefreshKey}
           />
         </TabShell>
 
@@ -145,8 +135,6 @@ export function AIPanel({
             tocStructure={tocStructure}
             activeChapter={activeChapter}
             activeSection={activeSection}
-            seedQuestions={seedQuiz}
-            onSeedConsumed={onQuizSeedConsumed}
           />
         </TabShell>
 
