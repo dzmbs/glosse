@@ -8,6 +8,7 @@ import { MapBody } from "@/components/ai/MapBody";
 import { HighlightsBody } from "@/components/ai/HighlightsBody";
 import type { ReadingFocus } from "@/ai/types";
 import type { TocStructure, ChapterInfo, SectionInfo } from "@/lib/tocStructure";
+import type { Highlight } from "@/ai/highlights";
 
 export type AITab = "ask" | "flashcards" | "quiz" | "map" | "highlights";
 
@@ -26,6 +27,7 @@ type Props = {
   activeChapter: ChapterInfo | null;
   activeSection: SectionInfo | null;
   foliateBook: unknown | null;
+  highlights: Highlight[];
   seedFocus?: ReadingFocus | null;
   onSeedConsumed?: () => void;
   onJumpToHighlight?: (cfi: string) => void;
@@ -55,6 +57,7 @@ export function AIPanel({
   activeChapter,
   activeSection,
   foliateBook,
+  highlights,
   seedFocus,
   onSeedConsumed,
   onJumpToHighlight,
@@ -147,8 +150,7 @@ export function AIPanel({
 
         <TabShell visible={tab === "highlights"}>
           <HighlightsBody
-            active={tab === "highlights" && open}
-            bookId={bookId}
+            highlights={highlights}
             onJump={(cfi) => onJumpToHighlight?.(cfi)}
             onRemoved={onHighlightRemoved}
           />

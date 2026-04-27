@@ -476,6 +476,7 @@ export function ReaderPage() {
         activeChapter={activeChapter}
         activeSection={activeSection}
         foliateBook={foliateBook}
+        highlights={highlights}
         seedFocus={chatSeed}
         onSeedConsumed={() => setChatSeed(null)}
         onJumpToHighlight={(cfi) => {

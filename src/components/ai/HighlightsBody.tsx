@@ -1,44 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
-import {
-  deleteHighlight,
-  listHighlights,
-  type Highlight,
-} from "@/ai/highlights";
+import { deleteHighlight, type Highlight } from "@/ai/highlights";
 import { Icon } from "@/components/Icons";
 
 type Props = {
-  active: boolean;
-  bookId: string;
+  /** Live highlight list owned by the reader. Lifting state here keeps
+   *  the Saved tab in sync immediately when the user creates one — no
+   *  tab-switch dance, no version-counter ping-pong. */
+  highlights: Highlight[];
   onJump: (cfi: string) => void;
   onRemoved?: (id: string) => void;
 };
 
-export function HighlightsBody({ active, bookId, onJump, onRemoved }: Props) {
-  const [items, setItems] = useState<Highlight[] | null>(null);
+export function HighlightsBody({ highlights, onJump, onRemoved }: Props) {
+  const items = highlights;
   const [error, setError] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    setError(null);
-    try {
-      const list = await listHighlights(bookId);
-      setItems(list);
-    } catch (err) {
-      setItems([]);
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [bookId]);
-
-  useEffect(() => {
-    if (!active) return;
-    void reload();
-  }, [active, reload]);
 
   const remove = useCallback(
     async (id: string) => {
       try {
         await deleteHighlight(id);
-        setItems((prev) => (prev ? prev.filter((h) => h.id !== id) : prev));
         onRemoved?.(id);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -46,10 +27,6 @@ export function HighlightsBody({ active, bookId, onJump, onRemoved }: Props) {
     },
     [onRemoved],
   );
-
-  if (items === null) {
-    return <Center text="Loading highlights…" />;
-  }
 
   if (error && items.length === 0) {
     return (
@@ -185,19 +162,3 @@ function HighlightRow({
   );
 }
 
-function Center({ text }: { text: string }) {
-  return (
-    <div
-      className="italic"
-      style={{
-        padding: "48px 22px",
-        textAlign: "center",
-        fontFamily: "var(--serif-stack)",
-        fontSize: 13.5,
-        color: "var(--ink-muted)",
-      }}
-    >
-      {text}
-    </div>
-  );
-}
