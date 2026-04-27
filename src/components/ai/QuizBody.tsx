@@ -22,6 +22,7 @@ import {
   ErrorState,
   ScopeChipRow,
   Section,
+  SectionsList,
   Status,
   TopicsSkeleton,
   buildStudyScope,
@@ -319,7 +320,7 @@ function HowItWorks() {
 type QuizConfig = {
   scope: ScopeKind;
   pickedChapter: ChapterInfo | null;
-  activeSection: SectionInfo | null;
+  selectedSectionIds: Set<string>;
   difficulty: (typeof DIFFICULTIES)[number];
   count: number;
   questionType: QuestionType;
@@ -360,6 +361,14 @@ function Setup({
       <Section title="Scope">
         <ScopeChipRow setup={setup} currentPage={currentPage} />
       </Section>
+
+      {setup.scope === "chapter" &&
+        setup.pickedChapter &&
+        setup.pickedChapter.sections.length > 0 && (
+          <Section title="Sections">
+            <SectionsList setup={setup} />
+          </Section>
+        )}
 
       <Section title="Difficulty">
         <div style={{ display: "flex", gap: 6 }}>
@@ -449,7 +458,7 @@ function Setup({
           onGenerate({
             scope: setup.scope,
             pickedChapter: setup.pickedChapter,
-            activeSection: setup.activeSection,
+            selectedSectionIds: setup.selectedSectionIds,
             difficulty: setup.difficulty,
             count: setup.count,
             questionType,

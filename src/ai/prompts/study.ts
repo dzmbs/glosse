@@ -13,17 +13,14 @@ export type StudyScope =
   | {
       kind: "chapter";
       chapterTitle: string;
-      // Every leaf-level title under this chapter (chapter heading +
-      // sections). Indexed chunks land under leaf titles, so a chapter
-      // scope must match any of them.
+      // Titles to match against indexed chunk.chapter_title. Defaults to
+      // the chapter heading + every section under it. The UI may narrow
+      // this set when the user un-selects sections of the picked
+      // chapter; the AI layer doesn't need to know — it just trusts the
+      // list. `narrowedTo` is the user-visible label for the narrowing
+      // (e.g. a single section title), used in prompt phrasing.
       titles: string[];
-      maxPage: number;
-    }
-  | {
-      kind: "section";
-      sectionTitle: string;
-      // Chapter the section belongs to — useful for prompt phrasing.
-      chapterTitle: string;
+      narrowedTo?: string;
       maxPage: number;
     };
 
@@ -38,30 +35,25 @@ export function filterPassagesByScope(
   scope: StudyScope,
 ): RetrievedChunk[] {
   if (scope.kind === "all") return passages;
-  const wanted = scopeTitleSet(scope);
+  const wanted = new Set(scope.titles.map((t) => t.toLowerCase().trim()));
   return passages.filter((p) => wanted.has(p.chapterTitle.toLowerCase().trim()));
-}
-
-function scopeTitleSet(
-  scope: Extract<StudyScope, { kind: "chapter" | "section" }>,
-): Set<string> {
-  const titles =
-    scope.kind === "chapter" ? scope.titles : [scope.sectionTitle];
-  return new Set(titles.map((t) => t.toLowerCase().trim()));
 }
 
 /** Human-readable scope phrase for prompts. */
 export function scopePhrase(scope: StudyScope): string {
-  if (scope.kind === "chapter") return `the chapter "${scope.chapterTitle}"`;
-  if (scope.kind === "section")
-    return `the section "${scope.sectionTitle}" of chapter "${scope.chapterTitle}"`;
+  if (scope.kind === "chapter") {
+    return scope.narrowedTo
+      ? `"${scope.narrowedTo}" within chapter "${scope.chapterTitle}"`
+      : `the chapter "${scope.chapterTitle}"`;
+  }
   return `the material we've read so far (pages 1–${scope.maxPage})`;
 }
 
 /** Short scope phrase for the user prompt suffix. */
 export function scopeSuffix(scope: StudyScope): string {
-  if (scope.kind === "chapter") return ` on ${scope.chapterTitle}`;
-  if (scope.kind === "section") return ` on ${scope.sectionTitle}`;
+  if (scope.kind === "chapter") {
+    return ` on ${scope.narrowedTo ?? scope.chapterTitle}`;
+  }
   return "";
 }
 
@@ -78,9 +70,9 @@ export function buildScopeRetrievalQuery(
 ): string {
   let base: string;
   if (scope.kind === "chapter") {
-    base = `${baseNoun} in ${scope.chapterTitle}`;
-  } else if (scope.kind === "section") {
-    base = `${baseNoun} in ${scope.sectionTitle} (${scope.chapterTitle})`;
+    base = scope.narrowedTo
+      ? `${baseNoun} in ${scope.narrowedTo} (${scope.chapterTitle})`
+      : `${baseNoun} in ${scope.chapterTitle}`;
   } else {
     base = `${baseNoun} of ${bookTitle}`;
   }

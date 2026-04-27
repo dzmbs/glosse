@@ -33,7 +33,14 @@ export type ChapterInfo = SectionInfo & {
 };
 
 export type TocStructure = {
+  /** Every top-level chapter (including front/back-matter). The reading
+   *  position resolver uses this so we can still detect the active
+   *  "chapter" even when the user is in front-matter. */
   chapters: ChapterInfo[];
+  /** Body chapters only — front-matter (Preface, Acknowledgments, etc.)
+   *  and back-matter (Index, Bibliography) filtered out. Use this for
+   *  the user-facing picker. */
+  bodyChapters: ChapterInfo[];
   /** True when chapter boundaries were inferred via title pattern rather
    *  than the TOC tree. Useful for telling callers to expect lossier
    *  results (e.g. some sections may be misattributed). */
@@ -43,17 +50,34 @@ export type TocStructure = {
 const CHAPTER_TITLE_RE =
   /^\s*(?:chapter\s+\d+|ch(?:apter)?\.?\s*\d+|part\s+\d+|book\s+[ivxlcdm\d]+|\d+\s*[.:]|[ivxlcdm]+\s*[.:])\b/i;
 
+// Front- and back-matter we keep out of the chapter picker. Body
+// chapters are the only meaningful unit to study against; including
+// "Copyright" or "Acknowledgments" just clutters the dropdown.
+const MATTER_TITLE_RE =
+  /^\s*(?:half[\s-]?title|title\s*page|copyright|colophon|imprint|dedication|epigraph|foreword|preface|acknowled?gments?|introduction|prologue|epilogue|afterword|about\s+(?:the\s+)?author|about\s+the\s+book|notes(?:\s+on)?|appendix(?:\s+[a-z\d]+)?|glossary|bibliography|references|further\s+reading|index|colofon|errata|table\s+of\s+contents|contents)\s*$/i;
+
+export function isFrontOrBackMatter(title: string): boolean {
+  return MATTER_TITLE_RE.test(title);
+}
+
 export function analyzeToc(toc: TocItem[]): TocStructure {
-  if (!toc || toc.length === 0) return { chapters: [], isFlat: false };
+  if (!toc || toc.length === 0)
+    return { chapters: [], bodyChapters: [], isFlat: false };
 
   const hasNesting = toc.some(
     (t) => Array.isArray(t.subitems) && t.subitems.length > 0,
   );
-  if (hasNesting) return analyzeNested(toc);
-  return analyzeFlat(toc);
+  const { chapters, isFlat } = hasNesting ? analyzeNested(toc) : analyzeFlat(toc);
+  return {
+    chapters,
+    isFlat,
+    bodyChapters: chapters.filter((c) => !isFrontOrBackMatter(c.title)),
+  };
 }
 
-function analyzeNested(toc: TocItem[]): TocStructure {
+type RawTocAnalysis = { chapters: ChapterInfo[]; isFlat: boolean };
+
+function analyzeNested(toc: TocItem[]): RawTocAnalysis {
   const chapters: ChapterInfo[] = [];
   toc.forEach((node, i) => {
     const sections = node.subitems ? collectLeaves(node.subitems) : [];
@@ -85,7 +109,7 @@ function collectLeaves(items: TocItem[]): SectionInfo[] {
   return out;
 }
 
-function analyzeFlat(toc: TocItem[]): TocStructure {
+function analyzeFlat(toc: TocItem[]): RawTocAnalysis {
   const isChapter = toc.map((t) => CHAPTER_TITLE_RE.test(t.label));
   const anyMatched = isChapter.some(Boolean);
 

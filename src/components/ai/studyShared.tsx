@@ -10,12 +10,14 @@ import type { ChapterInfo, SectionInfo, TocStructure } from "@/lib/tocStructure"
 export const DIFFICULTIES: StudyDifficulty[] = ["easy", "medium", "hard"];
 export const COUNTS = [5, 10, 15, 20] as const;
 
-export type ScopeKind = "all" | "chapter" | "section";
+export type ScopeKind = "all" | "chapter";
 
 type ScopeInputs = {
   scope: ScopeKind;
   pickedChapter: ChapterInfo | null;
-  activeSection: SectionInfo | null;
+  /** Subset of section ids the user has unchecked. Empty = the whole
+   *  chapter; populated = chapter narrowed to the checked sections. */
+  selectedSectionIds: Set<string> | null;
 };
 
 /** Translate a UI scope selection into the StudyScope the AI layer expects. */
@@ -23,19 +25,33 @@ export function buildStudyScope(
   inputs: ScopeInputs,
   currentPage: number,
 ): StudyScope {
-  if (inputs.scope === "section" && inputs.activeSection && inputs.pickedChapter) {
-    return {
-      kind: "section",
-      sectionTitle: inputs.activeSection.title,
-      chapterTitle: inputs.pickedChapter.title,
-      maxPage: currentPage,
-    };
-  }
   if (inputs.scope === "chapter" && inputs.pickedChapter) {
+    const ch = inputs.pickedChapter;
+    const sel = inputs.selectedSectionIds;
+    // No sections, or every section ticked → whole chapter.
+    const allSelected =
+      ch.sections.length === 0 ||
+      sel === null ||
+      ch.sections.every((s) => sel.has(s.id));
+    if (allSelected) {
+      return {
+        kind: "chapter",
+        chapterTitle: ch.title,
+        titles: ch.allTitles,
+        maxPage: currentPage,
+      };
+    }
+    const checkedSections = ch.sections.filter((s) => sel.has(s.id));
+    const titles = [ch.title, ...checkedSections.map((s) => s.title)];
+    const narrowedTo =
+      checkedSections.length === 1
+        ? checkedSections[0]!.title
+        : `${checkedSections.length} sections`;
     return {
       kind: "chapter",
-      chapterTitle: inputs.pickedChapter.title,
-      titles: inputs.pickedChapter.allTitles,
+      chapterTitle: ch.title,
+      titles,
+      narrowedTo,
       maxPage: currentPage,
     };
   }
@@ -56,20 +72,24 @@ export function useStudySetup(opts: {
   const { bookId, tocStructure, activeChapter, activeSection, currentPage } =
     opts;
 
-  // Chapters at or before the current reading position. Spoiler-safe —
-  // we never expose later chapters, even though the index could.
+  // Body chapters at or before the current reading position. Front- and
+  // back-matter are filtered out so the picker stays focused on study
+  // material; spoiler-safe by index — we never expose later chapters.
   const readChapters = useMemo(() => {
     if (!activeChapter) return [];
-    return tocStructure.chapters.filter(
+    return tocStructure.bodyChapters.filter(
       (c) => c.chapterIndex <= activeChapter.chapterIndex,
     );
   }, [tocStructure, activeChapter]);
 
-  const [scope, setScope] = useState<ScopeKind>(
-    activeChapter ? "chapter" : "all",
-  );
+  // Default scope: chapter if the reader is in a body chapter; otherwise
+  // fall back to "all" (front-matter, no chapter picker available).
+  const inBodyChapter =
+    !!activeChapter && readChapters.some((c) => c.id === activeChapter.id);
+
+  const [scope, setScope] = useState<ScopeKind>(inBodyChapter ? "chapter" : "all");
   const [pickedChapterId, setPickedChapterId] = useState<string | null>(
-    activeChapter?.id ?? null,
+    inBodyChapter ? (activeChapter?.id ?? null) : (readChapters[0]?.id ?? null),
   );
   // Snap the picker to the current chapter as the reader moves through
   // the book, but only when the picker is still on the previously-active
@@ -84,16 +104,38 @@ export function useStudySetup(opts: {
     });
   }, [activeChapter, readChapters]);
 
-  const pickedChapter: ChapterInfo | null = useMemo(
-    () => readChapters.find((c) => c.id === pickedChapterId) ?? activeChapter,
-    [readChapters, pickedChapterId, activeChapter],
-  );
+  const pickedChapter: ChapterInfo | null = useMemo(() => {
+    const fromPicker = readChapters.find((c) => c.id === pickedChapterId);
+    if (fromPicker) return fromPicker;
+    return inBodyChapter ? activeChapter : (readChapters[0] ?? null);
+  }, [readChapters, pickedChapterId, activeChapter, inBodyChapter]);
 
-  // Section scope only meaningful when reading inside a section AND the
-  // picker is still on the current chapter — otherwise the section the
-  // user is in doesn't belong to the picked chapter.
-  const sectionAvailable =
-    !!activeSection && pickedChapter?.id === activeChapter?.id;
+  // Per-chapter section selection: full set selected by default. Switch
+  // re-selects all sections when the picked chapter changes — otherwise
+  // the user would silently inherit narrowing from a previous chapter.
+  const [selectedSectionIds, setSelectedSectionIds] = useState<Set<string>>(
+    () => new Set(pickedChapter?.sections.map((s) => s.id) ?? []),
+  );
+  useEffect(() => {
+    setSelectedSectionIds(
+      new Set(pickedChapter?.sections.map((s) => s.id) ?? []),
+    );
+  }, [pickedChapter]);
+
+  const toggleSection = (id: string) => {
+    setSelectedSectionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const selectAllSections = () => {
+    setSelectedSectionIds(
+      new Set(pickedChapter?.sections.map((s) => s.id) ?? []),
+    );
+  };
+  const clearSections = () => setSelectedSectionIds(new Set());
 
   const [difficulty, setDifficulty] = useState<StudyDifficulty>("medium");
   const [count, setCount] = useState<number>(10);
@@ -108,9 +150,9 @@ export function useStudySetup(opts: {
     (async () => {
       const studyScope = buildStudyScope(
         {
-          scope: scope === "section" && !sectionAvailable ? "all" : scope,
+          scope,
           pickedChapter,
-          activeSection,
+          selectedSectionIds: scope === "chapter" ? selectedSectionIds : null,
         },
         currentPage,
       );
@@ -120,14 +162,7 @@ export function useStudySetup(opts: {
     return () => {
       cancelled = true;
     };
-  }, [
-    bookId,
-    scope,
-    pickedChapter,
-    activeSection,
-    sectionAvailable,
-    currentPage,
-  ]);
+  }, [bookId, scope, pickedChapter, selectedSectionIds, currentPage]);
 
   const toggleTopic = (t: string) => {
     setSelectedTopics((prev) => {
@@ -146,7 +181,10 @@ export function useStudySetup(opts: {
     setPickedChapterId,
     readChapters,
     activeSection,
-    sectionAvailable,
+    selectedSectionIds,
+    toggleSection,
+    selectAllSections,
+    clearSections,
     difficulty,
     setDifficulty,
     count,
@@ -161,8 +199,8 @@ export function useStudySetup(opts: {
 
 /**
  * Shared scope chip row used by Quiz and Flashcards setup screens.
- * Renders "Everything I've read" + a chapter picker + an optional
- * "Current section" chip when a section is being read.
+ * "Everything I've read" + a chapter picker. Section narrowing is done
+ * separately, via SectionsList.
  */
 export function ScopeChipRow({
   setup,
@@ -188,15 +226,174 @@ export function ScopeChipRow({
         onActivate={() => setup.setScope("chapter")}
         disabled={setup.readChapters.length === 0}
       />
-      {setup.sectionAvailable && setup.activeSection && (
-        <Chip
-          label="Current section"
-          sub={setup.activeSection.title}
-          active={setup.scope === "section"}
-          onClick={() => setup.setScope("section")}
-        />
-      )}
     </div>
+  );
+}
+
+/**
+ * Section checkboxes shown when chapter scope is active. All sections
+ * checked by default; user can narrow by un-ticking. Active section
+ * (the one the reader is on) gets a "now" marker.
+ */
+export function SectionsList({
+  setup,
+}: {
+  setup: ReturnType<typeof useStudySetup>;
+}) {
+  if (setup.scope !== "chapter" || !setup.pickedChapter) return null;
+  const sections = setup.pickedChapter.sections;
+  if (sections.length === 0) return null;
+
+  const allOn = sections.every((s) => setup.selectedSectionIds.has(s.id));
+  const noneOn = sections.every((s) => !setup.selectedSectionIds.has(s.id));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 10,
+          marginBottom: 4,
+        }}
+      >
+        <SubtleButton
+          disabled={allOn}
+          onClick={setup.selectAllSections}
+          label="Select all"
+        />
+        <SubtleButton
+          disabled={noneOn}
+          onClick={setup.clearSections}
+          label="Clear"
+        />
+      </div>
+      {sections.map((section) => {
+        const checked = setup.selectedSectionIds.has(section.id);
+        const isCurrent = setup.activeSection?.id === section.id;
+        return (
+          <CheckboxRow
+            key={section.id}
+            label={section.title}
+            checked={checked}
+            badge={isCurrent ? "now" : undefined}
+            onToggle={() => setup.toggleSection(section.id)}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function SubtleButton({
+  label,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      style={{
+        background: "transparent",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        padding: "2px 4px",
+        fontFamily: "var(--inter-stack)",
+        fontSize: 11,
+        fontWeight: 500,
+        color: disabled ? "var(--ink-muted)" : "var(--accent, var(--ink))",
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function CheckboxRow({
+  label,
+  checked,
+  badge,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  badge?: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "7px 8px",
+        borderRadius: 6,
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+        textAlign: "left",
+      }}
+    >
+      <span
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: 4,
+          border: "1.5px solid",
+          borderColor: checked ? "var(--ink)" : "var(--rule)",
+          background: checked ? "var(--ink)" : "transparent",
+          color: "var(--paper)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 11,
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        {checked ? "✓" : ""}
+      </span>
+      <span
+        style={{
+          fontFamily: "var(--inter-stack)",
+          fontSize: 12.5,
+          color: "var(--ink)",
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </span>
+      {badge && (
+        <span
+          style={{
+            fontFamily: "var(--inter-stack)",
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
+            color: "var(--ink-muted)",
+            border: "1px solid var(--rule)",
+            borderRadius: 4,
+            padding: "1px 6px",
+          }}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -295,6 +492,7 @@ export function ChapterPickerChip({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
+  const selectedRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -303,7 +501,14 @@ export function ChapterPickerChip({
       if (!ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    // Defer one frame so the popover has laid out before we scroll.
+    const id = requestAnimationFrame(() => {
+      selectedRef.current?.scrollIntoView({ block: "nearest" });
+    });
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      cancelAnimationFrame(id);
+    };
   }, [open]);
 
   const showPicker = chapters.length > 1;
@@ -413,6 +618,7 @@ export function ChapterPickerChip({
               <button
                 key={c.id}
                 type="button"
+                ref={selected ? selectedRef : null}
                 onClick={() => {
                   onPick(c.id);
                   if (!active) onActivate();

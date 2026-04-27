@@ -38,8 +38,10 @@ function rememberTopics(key: CacheKey, value: string[]) {
 }
 
 function keyFor(bookId: string, scope: TopicScope): CacheKey {
-  if (scope.kind === "chapter") return `${bookId}::ch::${scope.chapterTitle}`;
-  if (scope.kind === "section") return `${bookId}::sec::${scope.sectionTitle}`;
+  if (scope.kind === "chapter") {
+    const narrow = scope.narrowedTo ? `::n::${scope.narrowedTo}` : "";
+    return `${bookId}::ch::${scope.chapterTitle}${narrow}`;
+  }
   return `${bookId}::all::${scope.maxPage}`;
 }
 
@@ -128,13 +130,12 @@ async function sampleChunks(
 ): Promise<ChunkRow[]> {
   const db = await getDb();
 
-  if (scope.kind === "chapter" || scope.kind === "section") {
+  if (scope.kind === "chapter") {
     // The TOC labels we get from the reader and the chapter_title stored
     // at indexing time are independently derived — they can disagree on
     // whitespace, trailing prefixes, or casing. We accept ANY of the
     // chapter/section titles, doing exact/case-insensitive/LIKE in turn.
-    const titles =
-      scope.kind === "chapter" ? scope.titles : [scope.sectionTitle];
+    const titles = scope.titles;
     if (titles.length === 0) return [];
     const placeholders = titles.map(() => "?").join(",");
     const lowered = titles.map((t) => t.toLowerCase().trim());
