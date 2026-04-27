@@ -2,11 +2,12 @@ import { z } from "zod";
 
 import { getDb } from "../db/client";
 import type { ChunkRow } from "../db/schema";
+import type { StudyScope } from "../prompts/study";
 import { generateStructuredChat } from "../providers/generate";
 
-export type TopicScope =
-  | { kind: "all"; maxPage?: number }
-  | { kind: "chapter"; chapterTitle: string };
+// Topic-proposal accepts the same scope shapes as quiz/flashcards
+// generation. Aliased so callers can pass StudyScope directly.
+export type TopicScope = StudyScope;
 
 const TopicsSchema = z.object({
   topics: z
@@ -37,9 +38,9 @@ function rememberTopics(key: CacheKey, value: string[]) {
 }
 
 function keyFor(bookId: string, scope: TopicScope): CacheKey {
-  return scope.kind === "chapter"
-    ? `${bookId}::ch::${scope.chapterTitle}`
-    : `${bookId}::all::${scope.maxPage ?? "inf"}`;
+  if (scope.kind === "chapter") return `${bookId}::ch::${scope.chapterTitle}`;
+  if (scope.kind === "section") return `${bookId}::sec::${scope.sectionTitle}`;
+  return `${bookId}::all::${scope.maxPage}`;
 }
 
 /**
@@ -50,7 +51,7 @@ function keyFor(bookId: string, scope: TopicScope): CacheKey {
  */
 export async function proposeFocusTopics(
   bookId: string,
-  scope: TopicScope = { kind: "all" },
+  scope: TopicScope,
 ): Promise<string[]> {
   const key = keyFor(bookId, scope);
   const cached = cache.get(key);
@@ -127,29 +128,35 @@ async function sampleChunks(
 ): Promise<ChunkRow[]> {
   const db = await getDb();
 
-  if (scope.kind === "chapter") {
-    // The TOC label we get from the reader and the chapter_title stored
+  if (scope.kind === "chapter" || scope.kind === "section") {
+    // The TOC labels we get from the reader and the chapter_title stored
     // at indexing time are independently derived — they can disagree on
-    // whitespace, trailing "Chapter" prefixes, or casing. Try exact, then
-    // case-insensitive, then LIKE as a last resort.
-    const title = scope.chapterTitle;
+    // whitespace, trailing prefixes, or casing. We accept ANY of the
+    // chapter/section titles, doing exact/case-insensitive/LIKE in turn.
+    const titles =
+      scope.kind === "chapter" ? scope.titles : [scope.sectionTitle];
+    if (titles.length === 0) return [];
+    const placeholders = titles.map(() => "?").join(",");
+    const lowered = titles.map((t) => t.toLowerCase().trim());
     return firstNonEmpty<ChunkRow>([
       () =>
         db
           .prepare(
             `SELECT * FROM chunks
-             WHERE book_id = ? AND chapter_title = ?
+             WHERE book_id = ? AND chapter_title IN (${placeholders})
              ORDER BY page_number ASC LIMIT ?`,
           )
-          .all(bookId, title, limit) as Promise<ChunkRow[]>,
+          .all(bookId, ...titles, limit) as Promise<ChunkRow[]>,
       () =>
         db
           .prepare(
             `SELECT * FROM chunks
-             WHERE book_id = ? AND LOWER(TRIM(chapter_title)) = LOWER(TRIM(?))
+             WHERE book_id = ? AND LOWER(TRIM(chapter_title)) IN (${placeholders})
              ORDER BY page_number ASC LIMIT ?`,
           )
-          .all(bookId, title, limit) as Promise<ChunkRow[]>,
+          .all(bookId, ...lowered, limit) as Promise<ChunkRow[]>,
+      // LIKE fallback only on a single title — ORing many LIKEs gets
+      // expensive and the IN-on-trimmed pass usually catches it.
       () =>
         db
           .prepare(
@@ -157,7 +164,7 @@ async function sampleChunks(
              WHERE book_id = ? AND LOWER(chapter_title) LIKE LOWER(?)
              ORDER BY page_number ASC LIMIT ?`,
           )
-          .all(bookId, `%${title}%`, limit) as Promise<ChunkRow[]>,
+          .all(bookId, `%${titles[0]}%`, limit) as Promise<ChunkRow[]>,
     ]);
   }
 

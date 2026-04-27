@@ -8,6 +8,7 @@ import {
   FlashcardsSchema,
   buildFlashcardsSystemPrompt,
   buildFlashcardsUserPrompt,
+  buildScopeRetrievalQuery,
   filterPassagesByScope,
   type StudyDifficulty,
   type StudyScope,
@@ -102,11 +103,11 @@ function buildRetrievalQuery(
   opts: GenerateFlashcardsOptions,
   focusBits: string[],
 ): string {
-  const base =
-    opts.scope.kind === "chapter"
-      ? `Key concepts, definitions, and arguments in ${opts.scope.chapterTitle}`
-      : `Key concepts and core ideas of ${opts.bookTitle}`;
-  if (focusBits.length === 0) return base;
-  return `${base} — with emphasis on: ${focusBits.join(", ")}`;
+  return buildScopeRetrievalQuery(
+    opts.scope,
+    opts.bookTitle,
+    "Key concepts, definitions, and arguments",
+    focusBits,
+  );
 }
 

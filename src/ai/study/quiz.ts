@@ -5,6 +5,7 @@ import {
   QuizSchema,
   buildQuizSystemPrompt,
   buildQuizUserPrompt,
+  buildScopeRetrievalQuery,
   filterPassagesByScope,
   type QuestionType,
   type StudyDifficulty,
@@ -133,12 +134,12 @@ function buildRetrievalQuery(
   opts: GenerateQuizOptions,
   focusBits: string[],
 ): string {
-  const base =
-    opts.scope.kind === "chapter"
-      ? `Key concepts, claims, and distinctions in ${opts.scope.chapterTitle}`
-      : `Key concepts and arguments of ${opts.bookTitle}`;
-  if (focusBits.length === 0) return base;
-  return `${base} — with emphasis on: ${focusBits.join(", ")}`;
+  return buildScopeRetrievalQuery(
+    opts.scope,
+    opts.bookTitle,
+    "Key concepts, claims, and distinctions",
+    focusBits,
+  );
 }
 
 

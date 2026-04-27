@@ -10,7 +10,22 @@ export type StudyDifficulty = "easy" | "medium" | "hard";
 
 export type StudyScope =
   | { kind: "all"; maxPage: number }
-  | { kind: "chapter"; chapterTitle: string; maxPage: number };
+  | {
+      kind: "chapter";
+      chapterTitle: string;
+      // Every leaf-level title under this chapter (chapter heading +
+      // sections). Indexed chunks land under leaf titles, so a chapter
+      // scope must match any of them.
+      titles: string[];
+      maxPage: number;
+    }
+  | {
+      kind: "section";
+      sectionTitle: string;
+      // Chapter the section belongs to — useful for prompt phrasing.
+      chapterTitle: string;
+      maxPage: number;
+    };
 
 export type QuestionType = "mcq" | "tf" | "mixed";
 
@@ -22,9 +37,55 @@ export function filterPassagesByScope(
   passages: RetrievedChunk[],
   scope: StudyScope,
 ): RetrievedChunk[] {
-  if (scope.kind !== "chapter") return passages;
-  const wanted = scope.chapterTitle.toLowerCase();
-  return passages.filter((p) => p.chapterTitle.toLowerCase() === wanted);
+  if (scope.kind === "all") return passages;
+  const wanted = scopeTitleSet(scope);
+  return passages.filter((p) => wanted.has(p.chapterTitle.toLowerCase().trim()));
+}
+
+function scopeTitleSet(
+  scope: Extract<StudyScope, { kind: "chapter" | "section" }>,
+): Set<string> {
+  const titles =
+    scope.kind === "chapter" ? scope.titles : [scope.sectionTitle];
+  return new Set(titles.map((t) => t.toLowerCase().trim()));
+}
+
+/** Human-readable scope phrase for prompts. */
+export function scopePhrase(scope: StudyScope): string {
+  if (scope.kind === "chapter") return `the chapter "${scope.chapterTitle}"`;
+  if (scope.kind === "section")
+    return `the section "${scope.sectionTitle}" of chapter "${scope.chapterTitle}"`;
+  return `the material we've read so far (pages 1–${scope.maxPage})`;
+}
+
+/** Short scope phrase for the user prompt suffix. */
+export function scopeSuffix(scope: StudyScope): string {
+  if (scope.kind === "chapter") return ` on ${scope.chapterTitle}`;
+  if (scope.kind === "section") return ` on ${scope.sectionTitle}`;
+  return "";
+}
+
+/**
+ * Build the natural-language query passed to hybrid retrieval. Quiz and
+ * flashcards differ only in the noun phrase ("claims and distinctions"
+ * vs. "definitions and arguments"); the rest is shared scope handling.
+ */
+export function buildScopeRetrievalQuery(
+  scope: StudyScope,
+  bookTitle: string,
+  baseNoun: string,
+  focusBits: string[],
+): string {
+  let base: string;
+  if (scope.kind === "chapter") {
+    base = `${baseNoun} in ${scope.chapterTitle}`;
+  } else if (scope.kind === "section") {
+    base = `${baseNoun} in ${scope.sectionTitle} (${scope.chapterTitle})`;
+  } else {
+    base = `${baseNoun} of ${bookTitle}`;
+  }
+  if (focusBits.length === 0) return base;
+  return `${base} — with emphasis on: ${focusBits.join(", ")}`;
 }
 
 // -- Quiz ---------------------------------------------------------------
@@ -56,10 +117,7 @@ export type QuizGenerationInput = {
 };
 
 export function buildQuizSystemPrompt(input: QuizGenerationInput): string {
-  const scopeText =
-    input.scope.kind === "chapter"
-      ? `the chapter "${input.scope.chapterTitle}"`
-      : `the material we've read so far (pages 1–${input.scope.maxPage})`;
+  const scopeText = scopePhrase(input.scope);
 
   const typeHint =
     input.questionType === "mcq"
@@ -120,9 +178,7 @@ export function buildQuizUserPrompt(input: {
   focusBits: string[];
 }): string {
   const parts: string[] = [
-    `Generate ${input.count} ${input.difficulty} quiz questions${
-      input.scope.kind === "chapter" ? ` on ${input.scope.chapterTitle}` : ""
-    }.`,
+    `Generate ${input.count} ${input.difficulty} quiz questions${scopeSuffix(input.scope)}.`,
   ];
   if (input.focusBits.length > 0) {
     parts.push(`Focus on: ${input.focusBits.join(", ")}.`);
@@ -169,10 +225,7 @@ export type FlashcardsGenerationInput = {
 export function buildFlashcardsSystemPrompt(
   input: FlashcardsGenerationInput,
 ): string {
-  const scopeText =
-    input.scope.kind === "chapter"
-      ? `the chapter "${input.scope.chapterTitle}"`
-      : `the material we've read so far (pages 1–${input.scope.maxPage})`;
+  const scopeText = scopePhrase(input.scope);
 
   const difficultyHint =
     input.difficulty === "easy"
@@ -218,9 +271,7 @@ export function buildFlashcardsUserPrompt(input: {
   scope: StudyScope;
 }): string {
   const parts: string[] = [
-    `Generate ${input.count} ${input.difficulty} flashcards covering the most important ideas${
-      input.scope.kind === "chapter" ? ` in ${input.scope.chapterTitle}` : ""
-    }.`,
+    `Generate ${input.count} ${input.difficulty} flashcards covering the most important ideas${scopeSuffix(input.scope)}.`,
   ];
   if (input.focusBits.length > 0) {
     parts.push(
