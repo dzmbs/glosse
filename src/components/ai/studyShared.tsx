@@ -311,7 +311,6 @@ export function SectionsList({
           style={{
             display: "flex",
             flexDirection: "column",
-            gap: 2,
             marginTop: 6,
             paddingLeft: 4,
           }}
@@ -335,19 +334,29 @@ export function SectionsList({
               label="Clear"
             />
           </div>
-          {sections.map((section) => {
-            const checked = setup.selectedSectionIds.has(section.id);
-            const isCurrent = setup.activeSection?.id === section.id;
-            return (
-              <CheckboxRow
-                key={section.id}
-                label={section.title}
-                checked={checked}
-                badge={isCurrent ? "now" : undefined}
-                onToggle={() => setup.toggleSection(section.id)}
-              />
-            );
-          })}
+          <div
+            style={{
+              maxHeight: 220,
+              overflowY: "auto",
+              border: "1px solid var(--rule-soft)",
+              borderRadius: 6,
+              padding: "2px 0",
+            }}
+          >
+            {sections.map((section) => {
+              const checked = setup.selectedSectionIds.has(section.id);
+              const isCurrent = setup.activeSection?.id === section.id;
+              return (
+                <CheckboxRow
+                  key={section.id}
+                  label={section.title}
+                  checked={checked}
+                  badge={isCurrent ? "now" : undefined}
+                  onToggle={() => setup.toggleSection(section.id)}
+                />
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -403,9 +412,9 @@ function CheckboxRow({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
-        padding: "7px 8px",
-        borderRadius: 6,
+        gap: 8,
+        padding: "3px 8px",
+        width: "100%",
         background: "transparent",
         border: "none",
         cursor: "pointer",
@@ -414,9 +423,9 @@ function CheckboxRow({
     >
       <span
         style={{
-          width: 16,
-          height: 16,
-          borderRadius: 4,
+          width: 13,
+          height: 13,
+          borderRadius: 3,
           border: "1.5px solid",
           borderColor: checked ? "var(--ink)" : "var(--rule)",
           background: checked ? "var(--ink)" : "transparent",
@@ -424,7 +433,7 @@ function CheckboxRow({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 11,
+          fontSize: 9,
           fontWeight: 700,
           flexShrink: 0,
         }}
@@ -434,7 +443,8 @@ function CheckboxRow({
       <span
         style={{
           fontFamily: "var(--inter-stack)",
-          fontSize: 12.5,
+          fontSize: 11.5,
+          lineHeight: 1.3,
           color: "var(--ink)",
           flex: 1,
           minWidth: 0,
@@ -449,14 +459,14 @@ function CheckboxRow({
         <span
           style={{
             fontFamily: "var(--inter-stack)",
-            fontSize: 10,
+            fontSize: 9,
             fontWeight: 600,
             letterSpacing: 0.4,
             textTransform: "uppercase",
             color: "var(--ink-muted)",
             border: "1px solid var(--rule)",
-            borderRadius: 4,
-            padding: "1px 6px",
+            borderRadius: 3,
+            padding: "0 4px",
           }}
         >
           {badge}
