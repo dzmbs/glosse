@@ -64,7 +64,7 @@ async function main() {
         .map(
           (it) =>
             `${Math.round(it.transform[4])}:${Math.round((it as Item).width ?? 0)}=` +
-            JSON.stringify(it.str.slice(0, 40)),
+            JSON.stringify(it.str.slice(0, 300)),
         )
         .join("  ");
       console.log(

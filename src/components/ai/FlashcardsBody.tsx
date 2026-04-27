@@ -7,9 +7,13 @@ import {
   recordReview,
   type Grade,
   type QuizCard,
-  type StudyScope,
 } from "@/ai";
 import { errorToString } from "@/ai/utils/str";
+import type {
+  ChapterInfo,
+  SectionInfo,
+  TocStructure,
+} from "@/lib/tocStructure";
 
 import {
   BackRow,
@@ -17,11 +21,14 @@ import {
   COUNTS,
   DIFFICULTIES,
   ErrorState,
+  ScopeChipRow,
   Section,
   Status,
   TopicsSkeleton,
+  buildStudyScope,
   cap,
   useStudySetup,
+  type ScopeKind,
 } from "./studyShared";
 
 type Props = {
@@ -30,7 +37,9 @@ type Props = {
   bookTitle: string;
   bookAuthor: string;
   currentPage: number;
-  currentChapterTitle: string | null;
+  tocStructure: TocStructure;
+  activeChapter: ChapterInfo | null;
+  activeSection: SectionInfo | null;
 };
 
 type Phase =
@@ -47,7 +56,9 @@ export function FlashcardsBody({
   bookTitle,
   bookAuthor,
   currentPage,
-  currentChapterTitle,
+  tocStructure,
+  activeChapter,
+  activeSection,
 }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "home", counts: null });
 
@@ -90,10 +101,7 @@ export function FlashcardsBody({
     async (config: SetupConfig) => {
       setPhase({ kind: "generating", message: "Pulling passages…" });
       try {
-        const scope: StudyScope =
-          config.scope === "chapter" && currentChapterTitle
-            ? { kind: "chapter", chapterTitle: currentChapterTitle, maxPage: currentPage }
-            : { kind: "all", maxPage: currentPage };
+        const scope = buildStudyScope(config, currentPage);
         setPhase({ kind: "generating", message: "Generating flashcards…" });
         await generateFlashcards({
           bookId,
@@ -114,7 +122,7 @@ export function FlashcardsBody({
         });
       }
     },
-    [bookAuthor, bookId, bookTitle, currentChapterTitle, currentPage],
+    [bookAuthor, bookId, bookTitle, currentPage],
   );
 
   const grade = useCallback(
@@ -154,7 +162,9 @@ export function FlashcardsBody({
       {phase.kind === "setup" && (
         <Setup
           bookId={bookId}
-          currentChapterTitle={currentChapterTitle}
+          tocStructure={tocStructure}
+          activeChapter={activeChapter}
+          activeSection={activeSection}
           currentPage={currentPage}
           onBack={() => void loadCounts()}
           onGenerate={(c) => void handleGenerate(c)}
@@ -252,7 +262,9 @@ function Home({
 // -- Setup --------------------------------------------------------------
 
 type SetupConfig = {
-  scope: "all" | "chapter";
+  scope: ScopeKind;
+  pickedChapter: ChapterInfo | null;
+  activeSection: SectionInfo | null;
   difficulty: (typeof DIFFICULTIES)[number];
   count: number;
   focusTopics: string[];
@@ -261,39 +273,35 @@ type SetupConfig = {
 
 function Setup({
   bookId,
-  currentChapterTitle,
+  tocStructure,
+  activeChapter,
+  activeSection,
   currentPage,
   onBack,
   onGenerate,
 }: {
   bookId: string;
-  currentChapterTitle: string | null;
+  tocStructure: TocStructure;
+  activeChapter: ChapterInfo | null;
+  activeSection: SectionInfo | null;
   currentPage: number;
   onBack: () => void;
   onGenerate: (config: SetupConfig) => void;
 }) {
-  const setup = useStudySetup({ bookId, currentChapterTitle, currentPage });
+  const setup = useStudySetup({
+    bookId,
+    tocStructure,
+    activeChapter,
+    activeSection,
+    currentPage,
+  });
 
   return (
     <div style={{ padding: "18px 22px 24px" }}>
       <BackRow title="New flashcard set" onBack={onBack} />
 
       <Section title="Scope">
-        <div style={{ display: "flex", gap: 6 }}>
-          <Chip
-            label="Everything I've read"
-            sub={`p. 1–${currentPage}`}
-            active={setup.scope === "all"}
-            onClick={() => setup.setScope("all")}
-          />
-          <Chip
-            label="Current chapter"
-            sub={currentChapterTitle ?? "no chapter"}
-            disabled={!currentChapterTitle}
-            active={setup.scope === "chapter" && !!currentChapterTitle}
-            onClick={() => currentChapterTitle && setup.setScope("chapter")}
-          />
-        </div>
+        <ScopeChipRow setup={setup} currentPage={currentPage} />
       </Section>
 
       <Section title="Difficulty">
@@ -369,6 +377,8 @@ function Setup({
         onClick={() =>
           onGenerate({
             scope: setup.scope,
+            pickedChapter: setup.pickedChapter,
+            activeSection: setup.activeSection,
             difficulty: setup.difficulty,
             count: setup.count,
             focusTopics: Array.from(setup.selectedTopics),

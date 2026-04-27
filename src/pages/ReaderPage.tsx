@@ -33,6 +33,7 @@ import {
   type BookRecord,
 } from "@/lib/db";
 import { resolveActiveToc } from "@/lib/toc";
+import { analyzeToc, locateInToc } from "@/lib/tocStructure";
 import { useLocalStorage } from "@/lib/useLocalStorage";
 
 function truncate(text: string, n: number): string {
@@ -172,6 +173,12 @@ export function ReaderPage() {
   // those. Prefer it when present.
   const { activeId, ancestorIds } = resolved;
   const activeLabel = resolved.activeLabel ?? location.tocLabel;
+
+  const tocStructure = useMemo(() => analyzeToc(toc), [toc]);
+  const { chapter: activeChapter, section: activeSection } = useMemo(
+    () => locateInToc(tocStructure, activeId, ancestorIds),
+    [tocStructure, activeId, ancestorIds],
+  );
 
   const handleSelectionAction = useCallback(
     async (action: SelectionAction) => {
@@ -465,7 +472,9 @@ export function ReaderPage() {
         bookAuthor={book.author}
         currentPage={location.page ?? 1}
         totalPages={location.pageTotal ?? undefined}
-        currentChapterTitle={activeLabel ?? null}
+        tocStructure={tocStructure}
+        activeChapter={activeChapter}
+        activeSection={activeSection}
         foliateBook={foliateBook}
         seedFocus={chatSeed}
         onSeedConsumed={() => setChatSeed(null)}

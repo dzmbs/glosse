@@ -7,6 +7,7 @@ import { QuizBody } from "@/components/ai/QuizBody";
 import { MapBody } from "@/components/ai/MapBody";
 import { HighlightsBody } from "@/components/ai/HighlightsBody";
 import type { ReadingFocus } from "@/ai/types";
+import type { TocStructure, ChapterInfo, SectionInfo } from "@/lib/tocStructure";
 
 export type AITab = "ask" | "flashcards" | "quiz" | "map" | "highlights";
 
@@ -21,7 +22,9 @@ type Props = {
   bookAuthor: string;
   currentPage: number;
   totalPages?: number;
-  currentChapterTitle: string | null;
+  tocStructure: TocStructure;
+  activeChapter: ChapterInfo | null;
+  activeSection: SectionInfo | null;
   foliateBook: unknown | null;
   seedFocus?: ReadingFocus | null;
   onSeedConsumed?: () => void;
@@ -48,7 +51,9 @@ export function AIPanel({
   bookAuthor,
   currentPage,
   totalPages,
-  currentChapterTitle,
+  tocStructure,
+  activeChapter,
+  activeSection,
   foliateBook,
   seedFocus,
   onSeedConsumed,
@@ -111,7 +116,9 @@ export function AIPanel({
             bookTitle={bookTitle}
             bookAuthor={bookAuthor}
             currentPage={currentPage}
-            currentChapterTitle={currentChapterTitle}
+            tocStructure={tocStructure}
+            activeChapter={activeChapter}
+            activeSection={activeSection}
           />
         </TabShell>
 
@@ -122,7 +129,9 @@ export function AIPanel({
             bookTitle={bookTitle}
             bookAuthor={bookAuthor}
             currentPage={currentPage}
-            currentChapterTitle={currentChapterTitle}
+            tocStructure={tocStructure}
+            activeChapter={activeChapter}
+            activeSection={activeSection}
           />
         </TabShell>
 
