@@ -240,47 +240,116 @@ export function SectionsList({
 }: {
   setup: ReturnType<typeof useStudySetup>;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  // Snap back to collapsed whenever the picked chapter changes — default
+  // is "give me the whole chapter, don't make me touch this".
+  useEffect(() => {
+    setExpanded(false);
+  }, [setup.pickedChapter?.id]);
+
   if (setup.scope !== "chapter" || !setup.pickedChapter) return null;
   const sections = setup.pickedChapter.sections;
   if (sections.length === 0) return null;
 
-  const allOn = sections.every((s) => setup.selectedSectionIds.has(s.id));
-  const noneOn = sections.every((s) => !setup.selectedSectionIds.has(s.id));
+  const total = sections.length;
+  const checkedCount = sections.reduce(
+    (n, s) => n + (setup.selectedSectionIds.has(s.id) ? 1 : 0),
+    0,
+  );
+  const allOn = checkedCount === total;
+  const noneOn = checkedCount === 0;
+  const summary = allOn
+    ? `All ${total} sections`
+    : noneOn
+      ? `No sections selected`
+      : `${checkedCount} of ${total} sections`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <div
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
         style={{
           display: "flex",
-          justifyContent: "flex-end",
-          gap: 10,
-          marginBottom: 4,
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          padding: "8px 12px",
+          borderRadius: 8,
+          background: "var(--paper)",
+          border: "1px solid var(--rule)",
+          cursor: "pointer",
+          fontFamily: "var(--inter-stack)",
+          fontSize: 12.5,
+          fontWeight: allOn ? 500 : 600,
+          color: "var(--ink)",
+          textAlign: "left",
         }}
       >
-        <SubtleButton
-          disabled={allOn}
-          onClick={setup.selectAllSections}
-          label="Select all"
-        />
-        <SubtleButton
-          disabled={noneOn}
-          onClick={setup.clearSections}
-          label="Clear"
-        />
-      </div>
-      {sections.map((section) => {
-        const checked = setup.selectedSectionIds.has(section.id);
-        const isCurrent = setup.activeSection?.id === section.id;
-        return (
-          <CheckboxRow
-            key={section.id}
-            label={section.title}
-            checked={checked}
-            badge={isCurrent ? "now" : undefined}
-            onToggle={() => setup.toggleSection(section.id)}
-          />
-        );
-      })}
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {summary}
+        </span>
+        <span
+          style={{
+            color: "var(--ink-muted)",
+            transform: expanded ? "rotate(180deg)" : "none",
+            transition: "transform 0.12s ease",
+          }}
+        >
+          ▾
+        </span>
+      </button>
+
+      {expanded && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            marginTop: 6,
+            paddingLeft: 4,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 10,
+              marginBottom: 2,
+            }}
+          >
+            <SubtleButton
+              disabled={allOn}
+              onClick={setup.selectAllSections}
+              label="Select all"
+            />
+            <SubtleButton
+              disabled={noneOn}
+              onClick={setup.clearSections}
+              label="Clear"
+            />
+          </div>
+          {sections.map((section) => {
+            const checked = setup.selectedSectionIds.has(section.id);
+            const isCurrent = setup.activeSection?.id === section.id;
+            return (
+              <CheckboxRow
+                key={section.id}
+                label={section.title}
+                checked={checked}
+                badge={isCurrent ? "now" : undefined}
+                onToggle={() => setup.toggleSection(section.id)}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
