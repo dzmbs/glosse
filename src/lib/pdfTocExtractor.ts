@@ -98,7 +98,6 @@ export async function extractPdfToc(
       consecutiveNonToc = 0;
     } else if (lastTocPage >= 0) {
       consecutiveNonToc++;
-      // Stop once TOC ends — body started.
       if (consecutiveNonToc >= 2) break;
     }
   }
@@ -110,15 +109,12 @@ export async function extractPdfToc(
     return null;
   }
 
-  // Cluster leftmost-x values into indent levels.
   const indentLevels = clusterIndents(entries.map((e) => e.leftX));
   diagnostics.indentLevels = indentLevels;
 
-  // Map printed page numbers → PDF page indices by sniffing each body
-  // page's header/footer. Front-matter (Roman) and body (Arabic) carry
-  // separate offsets, so anchor each independently. Done in batches so
-  // pdfjs's worker can fan out, with an early exit once both systems
-  // have enough anchors to be stable.
+  // Front-matter (Roman) and body (Arabic) have independent offsets, so
+  // we sniff page numbers and anchor each system separately. Batched so
+  // pdfjs can fan out, with an early exit once we have enough anchors.
   const bodyStart = (entries[entries.length - 1]?.pdfTocPage ?? 0) + 1;
   const sampleRange = Math.min(
     pdf.numPages - bodyStart,
@@ -215,8 +211,8 @@ function inferOffset(
   anchors: Array<{ printed: number; pdfIdx: number }>,
 ): number | null {
   if (anchors.length < 2) return null;
-  // Use the median offset — robust to a handful of misdetected page
-  // numbers (e.g., a body line containing a stray "12").
+  // Median, not mean — robust to misdetections (a body line ending in
+  // "12" can falsely advertise itself as page 12).
   const offsets = anchors.map((a) => a.pdfIdx - a.printed).sort((a, b) => a - b);
   return offsets[Math.floor(offsets.length / 2)];
 }
@@ -246,8 +242,8 @@ function groupLinesByY(items: PdfTextItem[], tolerance = 2): PdfTextItem[][] {
 }
 
 // Two-pass: parse each line, then absorb up to two preceding continuation
-// lines into entries that carry a page number. Continuations are wrapped
-// title fragments without a trailing page number.
+// lines into the entry that carries the page number — handles wrapped
+// multi-line TOC titles.
 function parseTocLines(lines: PdfTextItem[][], pdfTocPage: number): ParsedEntry[] {
   const parsed = lines.map((line) => parseTocLine(line, pdfTocPage));
   const out: ParsedEntry[] = [];
@@ -287,7 +283,8 @@ function readContinuationText(
   if (line.length === 0) return null;
   const sorted = line.slice().sort((a, b) => a.transform[4] - b.transform[4]);
   const last = sorted[sorted.length - 1];
-  // A real continuation has no trailing page-number-shaped item.
+  // Reject lines that themselves parse as TOC entries — those aren't
+  // continuations of an earlier title, they're their own entries.
   const lastTrimmed = last.str.replace(/^[.\s…]+|[.\s…]+$/g, "");
   if (PAGE_NUM_RE.test(lastTrimmed)) return null;
   if (INLINE_TOC_RE.test(last.str)) return null;
@@ -316,10 +313,9 @@ function parseTocLine(
   let pageNumStr: string | null = null;
   let titleClean: string | null = null;
 
-  // First try the joined whole-line text against the inline regex. This
-  // handles every variant where the page number was emitted alongside
-  // its leaders — including pdfjs splitting "47" across items as
-  // "....4" + "7" or bleeding a leading dot into "40" → ".40".
+  // The whole-line regex catches every variant where the page number is
+  // stuck to its leaders — including pdfjs splitting "47" across items
+  // as "....4" + "7" or bleeding a leading dot into "40" → ".40".
   const joined = sorted.map((it) => it.str).join("");
   const inline = INLINE_TOC_RE.exec(joined);
   if (inline) {
@@ -327,8 +323,9 @@ function parseTocLine(
     if (!PAGE_NUM_RE.test(pageNumStr)) return null;
     titleClean = collapseSpace(stripTrailingLeaders(inline[1]));
   } else {
-    // Fall back: the page number is a clean separate item at the right
-    // (no inline leaders), and visual separation comes from a real gap.
+    // No inline leaders — fall back to "page number is a separate item
+    // at the right". Require a real horizontal gap to avoid swallowing
+    // body lines that happen to end in a digit.
     const last = sorted[sorted.length - 1];
     const lastTrimmed = last.str.replace(/^[.\s…]+|[.\s…]+$/g, "");
     if (!PAGE_NUM_RE.test(lastTrimmed)) return null;
@@ -375,15 +372,14 @@ function isLeaderItem(s: string): boolean {
 function clusterIndents(xs: number[]): number[] {
   if (xs.length === 0) return [];
   const sorted = xs.slice().sort((a, b) => a - b);
-  // Cluster widths within 6 units (typical column-width spread).
   const clusters: number[][] = [[sorted[0]]];
   for (let i = 1; i < sorted.length; i++) {
     const prev = clusters[clusters.length - 1];
     if (sorted[i] - prev[prev.length - 1] < 6) prev.push(sorted[i]);
     else clusters.push([sorted[i]]);
   }
-  // Drop tiny clusters (<3 entries) — they're outliers (e.g. a stray
-  // wrapped title), not real indent levels.
+  // Tiny clusters (<3 entries) are typically wrapped-title outliers, not
+  // real indent levels — only keep them if every cluster is small.
   const significant = clusters.filter((c) => c.length >= 3);
   if (significant.length === 0) return clusters.map((c) => c[0]);
   return significant.map((c) => c[Math.floor(c.length / 2)]);

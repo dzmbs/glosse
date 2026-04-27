@@ -5,8 +5,6 @@ import type { ChunkRow } from "../db/schema";
 import type { StudyScope } from "../prompts/study";
 import { generateStructuredChat } from "../providers/generate";
 
-// Topic-proposal accepts the same scope shapes as quiz/flashcards
-// generation. Aliased so callers can pass StudyScope directly.
 export type TopicScope = StudyScope;
 
 const TopicsSchema = z.object({
@@ -131,10 +129,9 @@ async function sampleChunks(
   const db = await getDb();
 
   if (scope.kind === "chapter") {
-    // The TOC labels we get from the reader and the chapter_title stored
-    // at indexing time are independently derived — they can disagree on
-    // whitespace, trailing prefixes, or casing. We accept ANY of the
-    // chapter/section titles, doing exact/case-insensitive/LIKE in turn.
+    // Reader-supplied TOC labels and indexed chapter_title are derived
+    // independently — they can disagree on whitespace, prefixes, or
+    // casing. Try exact, then trimmed/lowercased, then LIKE.
     const titles = scope.titles;
     if (titles.length === 0) return [];
     const placeholders = titles.map(() => "?").join(",");
@@ -156,8 +153,8 @@ async function sampleChunks(
              ORDER BY page_number ASC LIMIT ?`,
           )
           .all(bookId, ...lowered, limit) as Promise<ChunkRow[]>,
-      // LIKE fallback only on a single title — ORing many LIKEs gets
-      // expensive and the IN-on-trimmed pass usually catches it.
+      // Single-title LIKE — ORing many LIKEs gets expensive and the
+      // earlier IN-on-trimmed pass usually already caught the match.
       () =>
         db
           .prepare(
@@ -169,9 +166,8 @@ async function sampleChunks(
     ]);
   }
 
-  // Fetch everything in scope ordered by page, then pick `limit` rows
-  // spaced evenly by proportional indexing. This gives breadth without
-  // biasing toward the opening of the book.
+  // Pick `limit` rows spaced evenly across the page range — gives the
+  // sampler breadth without biasing toward the opening of the book.
   const maxPageClause = scope.maxPage !== undefined ? " AND page_number <= ?" : "";
   const args: (string | number)[] = [bookId];
   if (scope.maxPage !== undefined) args.push(scope.maxPage);

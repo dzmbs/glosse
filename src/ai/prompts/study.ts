@@ -13,23 +13,17 @@ export type StudyScope =
   | {
       kind: "chapter";
       chapterTitle: string;
-      // Titles to match against indexed chunk.chapter_title. Defaults to
-      // the chapter heading + every section under it. The UI may narrow
-      // this set when the user un-selects sections of the picked
-      // chapter; the AI layer doesn't need to know — it just trusts the
-      // list. `narrowedTo` is the user-visible label for the narrowing
-      // (e.g. a single section title), used in prompt phrasing.
+      /** Titles matched against indexed chunk.chapter_title — chapter
+       *  heading + sections by default; narrower if the UI unticked
+       *  some. AI layer trusts the list as-is. */
       titles: string[];
+      /** User-visible label for the narrowing, used in prompt phrasing. */
       narrowedTo?: string;
       maxPage: number;
     };
 
 export type QuestionType = "mcq" | "tf" | "mixed";
 
-/**
- * Keep only passages whose chapter matches a chapter-scoped request.
- * For `all`-scoped requests, returns the input unchanged.
- */
 export function filterPassagesByScope(
   passages: RetrievedChunk[],
   scope: StudyScope,
@@ -39,7 +33,6 @@ export function filterPassagesByScope(
   return passages.filter((p) => wanted.has(p.chapterTitle.toLowerCase().trim()));
 }
 
-/** Human-readable scope phrase for prompts. */
 export function scopePhrase(scope: StudyScope): string {
   if (scope.kind === "chapter") {
     return scope.narrowedTo
@@ -49,7 +42,6 @@ export function scopePhrase(scope: StudyScope): string {
   return `the material we've read so far (pages 1–${scope.maxPage})`;
 }
 
-/** Short scope phrase for the user prompt suffix. */
 export function scopeSuffix(scope: StudyScope): string {
   if (scope.kind === "chapter") {
     return ` on ${scope.narrowedTo ?? scope.chapterTitle}`;
@@ -57,11 +49,8 @@ export function scopeSuffix(scope: StudyScope): string {
   return "";
 }
 
-/**
- * Build the natural-language query passed to hybrid retrieval. Quiz and
- * flashcards differ only in the noun phrase ("claims and distinctions"
- * vs. "definitions and arguments"); the rest is shared scope handling.
- */
+/** Quiz and flashcards differ only in `baseNoun`; everything else about
+ *  the retrieval-query construction is identical. */
 export function buildScopeRetrievalQuery(
   scope: StudyScope,
   bookTitle: string,

@@ -15,8 +15,6 @@ export type ScopeKind = "all" | "chapter";
 type ScopeInputs = {
   scope: ScopeKind;
   pickedChapter: ChapterInfo | null;
-  /** Subset of section ids the user has unchecked. Empty = the whole
-   *  chapter; populated = chapter narrowed to the checked sections. */
   selectedSectionIds: Set<string> | null;
 };
 
@@ -28,7 +26,6 @@ export function buildStudyScope(
   if (inputs.scope === "chapter" && inputs.pickedChapter) {
     const ch = inputs.pickedChapter;
     const sel = inputs.selectedSectionIds;
-    // No sections, or every section ticked → whole chapter.
     const allSelected =
       ch.sections.length === 0 ||
       sel === null ||
@@ -72,9 +69,8 @@ export function useStudySetup(opts: {
   const { bookId, tocStructure, activeChapter, activeSection, currentPage } =
     opts;
 
-  // Body chapters at or before the current reading position. Front- and
-  // back-matter are filtered out so the picker stays focused on study
-  // material; spoiler-safe by index — we never expose later chapters.
+  // Spoiler-safe: only chapters at or before the active one. Front- and
+  // back-matter are filtered upstream in `bodyChapters`.
   const readChapters = useMemo(() => {
     if (!activeChapter) return [];
     return tocStructure.bodyChapters.filter(
@@ -82,8 +78,8 @@ export function useStudySetup(opts: {
     );
   }, [tocStructure, activeChapter]);
 
-  // Default scope: chapter if the reader is in a body chapter; otherwise
-  // fall back to "all" (front-matter, no chapter picker available).
+  // Reader sitting in front-matter has no body chapter to anchor on —
+  // default to "all" so the picker isn't forced into a meaningless state.
   const inBodyChapter =
     !!activeChapter && readChapters.some((c) => c.id === activeChapter.id);
 
@@ -91,9 +87,9 @@ export function useStudySetup(opts: {
   const [pickedChapterId, setPickedChapterId] = useState<string | null>(
     inBodyChapter ? (activeChapter?.id ?? null) : (readChapters[0]?.id ?? null),
   );
-  // Snap the picker to the current chapter as the reader moves through
-  // the book, but only when the picker is still on the previously-active
-  // chapter (so an explicit user override sticks).
+  // Follow the reader as they advance, but preserve an explicit override
+  // (which we detect by the picker pointing at a chapter that's no
+  // longer in the read range — only happens when the user picked it).
   useEffect(() => {
     setPickedChapterId((prev) => {
       if (!activeChapter) return prev;
@@ -110,9 +106,8 @@ export function useStudySetup(opts: {
     return inBodyChapter ? activeChapter : (readChapters[0] ?? null);
   }, [readChapters, pickedChapterId, activeChapter, inBodyChapter]);
 
-  // Per-chapter section selection: full set selected by default. Switch
-  // re-selects all sections when the picked chapter changes — otherwise
-  // the user would silently inherit narrowing from a previous chapter.
+  // Reset narrowing whenever the picked chapter changes — otherwise the
+  // user's previous unticks silently apply to a different chapter.
   const [selectedSectionIds, setSelectedSectionIds] = useState<Set<string>>(
     () => new Set(pickedChapter?.sections.map((s) => s.id) ?? []),
   );
@@ -197,11 +192,6 @@ export function useStudySetup(opts: {
   };
 }
 
-/**
- * Shared scope chip row used by Quiz and Flashcards setup screens.
- * "Everything I've read" + a chapter picker. Section narrowing is done
- * separately, via SectionsList.
- */
 export function ScopeChipRow({
   setup,
   currentPage,
@@ -230,19 +220,12 @@ export function ScopeChipRow({
   );
 }
 
-/**
- * Section checkboxes shown when chapter scope is active. All sections
- * checked by default; user can narrow by un-ticking. Active section
- * (the one the reader is on) gets a "now" marker.
- */
 export function SectionsList({
   setup,
 }: {
   setup: ReturnType<typeof useStudySetup>;
 }) {
   const [expanded, setExpanded] = useState(false);
-  // Snap back to collapsed whenever the picked chapter changes — default
-  // is "give me the whole chapter, don't make me touch this".
   useEffect(() => {
     setExpanded(false);
   }, [setup.pickedChapter?.id]);
@@ -547,11 +530,8 @@ export function Chip({
   );
 }
 
-/**
- * Chip whose body acts like the regular Chip but with a chevron that
- * opens a dropdown of selectable chapters. Activating any chapter both
- * picks it and switches scope to "chapter".
- */
+/** Chip + chevron that opens a chapter list. Picking a chapter both
+ *  selects it and activates the chapter scope. */
 export function ChapterPickerChip({
   active,
   pickedTitle,
@@ -580,7 +560,7 @@ export function ChapterPickerChip({
       if (!ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", onDocClick);
-    // Defer one frame so the popover has laid out before we scroll.
+    // Wait one frame for the popover to lay out before scrolling.
     const id = requestAnimationFrame(() => {
       selectedRef.current?.scrollIntoView({ block: "nearest" });
     });

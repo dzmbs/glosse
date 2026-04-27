@@ -1,58 +1,37 @@
-// Derives chapter/section structure from a foliate TOC tree.
-//
-// Two cases:
-//   1. Hierarchical TOC (most EPUBs, our reconstructed PDF TOCs):
-//      top-level entries are chapters, nested entries are sections.
-//   2. Flat TOC (some publishers dump everything at depth 0): we detect
-//      chapter boundaries by title pattern ("Chapter N", roman numerals,
-//      ALL CAPS) and treat siblings between two boundaries as sections of
-//      the preceding chapter.
-//
-// All structures here are derived deterministically from the TocItem tree
-// — no new state is introduced. Re-derive on every render; it's cheap.
+// Derives chapter/section structure from a foliate TOC tree. Hierarchical
+// TOCs map directly (top-level → chapter, nested → section); flat TOCs
+// fall back to detecting chapter boundaries by title pattern.
 
 import type { TocItem } from "@/components/BookViewport";
 
 export type SectionInfo = {
-  /** TOC entry id, stable for the lifetime of this TOC. */
   id: string;
   title: string;
-  /** href so callers can navigate to it. */
   href: string;
 };
 
 export type ChapterInfo = SectionInfo & {
-  /** Position among chapters (0-based). */
   chapterIndex: number;
-  /** Sections under this chapter, in TOC order. Empty for chapters with
-   *  no further nesting (or for flat TOCs with no detectable sections). */
   sections: SectionInfo[];
-  /** Every leaf-level title under this chapter, including the chapter
-   *  itself. Used to filter indexed chunks when scoping to a chapter. */
+  /** Chapter heading + every section title, lowercased keys for the
+   *  indexed-chunk filter. Chunks land under leaf TOC labels, so a
+   *  chapter scope must accept any of them. */
   allTitles: string[];
 };
 
 export type TocStructure = {
-  /** Every top-level chapter (including front/back-matter). The reading
-   *  position resolver uses this so we can still detect the active
-   *  "chapter" even when the user is in front-matter. */
+  /** Every top-level chapter, front- and back-matter included. Used for
+   *  active-position resolution so we still know which "chapter" the
+   *  user is in when reading a Preface. */
   chapters: ChapterInfo[];
-  /** Body chapters only — front-matter (Preface, Acknowledgments, etc.)
-   *  and back-matter (Index, Bibliography) filtered out. Use this for
-   *  the user-facing picker. */
+  /** Body chapters only — what the user-facing picker shows. */
   bodyChapters: ChapterInfo[];
-  /** True when chapter boundaries were inferred via title pattern rather
-   *  than the TOC tree. Useful for telling callers to expect lossier
-   *  results (e.g. some sections may be misattributed). */
   isFlat: boolean;
 };
 
 const CHAPTER_TITLE_RE =
   /^\s*(?:chapter\s+\d+|ch(?:apter)?\.?\s*\d+|part\s+\d+|book\s+[ivxlcdm\d]+|\d+\s*[.:]|[ivxlcdm]+\s*[.:])\b/i;
 
-// Front- and back-matter we keep out of the chapter picker. Body
-// chapters are the only meaningful unit to study against; including
-// "Copyright" or "Acknowledgments" just clutters the dropdown.
 const MATTER_TITLE_RE =
   /^\s*(?:half[\s-]?title|title\s*page|copyright|colophon|imprint|dedication|epigraph|foreword|preface|acknowled?gments?|introduction|prologue|epilogue|afterword|about\s+(?:the\s+)?author|about\s+the\s+book|notes(?:\s+on)?|appendix(?:\s+[a-z\d]+)?|glossary|bibliography|references|further\s+reading|index|colofon|errata|table\s+of\s+contents|contents)\s*$/i;
 
@@ -94,9 +73,6 @@ function analyzeNested(toc: TocItem[]): RawTocAnalysis {
   return { chapters, isFlat: false };
 }
 
-// Flatten any subtree to a list of (id, title, href) — sections inherit
-// the most-specific labels regardless of depth so the picker shows real
-// section names rather than synthetic groupings.
 function collectLeaves(items: TocItem[]): SectionInfo[] {
   const out: SectionInfo[] = [];
   const walk = (list: TocItem[]) => {
@@ -113,8 +89,8 @@ function analyzeFlat(toc: TocItem[]): RawTocAnalysis {
   const isChapter = toc.map((t) => CHAPTER_TITLE_RE.test(t.label));
   const anyMatched = isChapter.some(Boolean);
 
-  // No chapter-pattern hits: treat every entry as its own chapter. Better
-  // than nothing — the picker still lets users target a single entry.
+  // No chapter-pattern hits — treat every entry as its own chapter so
+  // the picker stays useful instead of showing nothing.
   if (!anyMatched) {
     return {
       chapters: toc.map((node, i) => ({
@@ -150,12 +126,8 @@ function analyzeFlat(toc: TocItem[]): RawTocAnalysis {
   return { chapters, isFlat: true };
 }
 
-/**
- * Locate the active chapter and section for the current reading position.
- * `activeId` comes from `resolveActiveToc`; we look it up in the
- * structure to figure out which top-level chapter it belongs to and
- * whether a more-specific section is being read.
- */
+/** Resolve the active chapter (and section, when nested) from the id
+ *  chain produced by `resolveActiveToc`. */
 export function locateInToc(
   structure: TocStructure,
   activeId: string | null,
@@ -164,15 +136,10 @@ export function locateInToc(
   if (!structure.chapters.length || !activeId) {
     return { chapter: null, section: null };
   }
-
-  // Walk activeId + each ancestor; the first match against any chapter
-  // (or its sections) wins, preferring the deepest match for the section
-  // and the chapter that contains it.
   const idChain = [activeId, ...ancestorIds];
 
   for (const chapter of structure.chapters) {
     if (idChain.includes(chapter.id)) {
-      // We're on a chapter heading — no specific section yet.
       const sectionMatch = chapter.sections.find((s) => idChain.includes(s.id));
       return { chapter, section: sectionMatch ?? null };
     }
