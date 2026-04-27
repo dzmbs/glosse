@@ -40,6 +40,10 @@ type Props = {
   tocStructure: TocStructure;
   activeChapter: ChapterInfo | null;
   activeSection: SectionInfo | null;
+  /** When set, jump straight into a session with these questions. Used
+   *  for the selection-toolbar Quiz action. Cleared after consumption. */
+  seedQuestions?: QuizQuestion[] | null;
+  onSeedConsumed?: () => void;
 };
 
 type Answer =
@@ -75,6 +79,8 @@ export function QuizBody({
   tocStructure,
   activeChapter,
   activeSection,
+  seedQuestions,
+  onSeedConsumed,
 }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "home" });
 
@@ -85,6 +91,20 @@ export function QuizBody({
     }
     prevActiveRef.current = active;
   }, [active, phase.kind]);
+
+  // Selection-driven quizzes seed pre-built questions. Jump past the
+  // home/setup phases into a session immediately.
+  useEffect(() => {
+    if (!seedQuestions || seedQuestions.length === 0) return;
+    setPhase({
+      kind: "session",
+      questions: seedQuestions,
+      index: 0,
+      answered: null,
+      history: [],
+    });
+    onSeedConsumed?.();
+  }, [seedQuestions, onSeedConsumed]);
 
   const handleGenerate = async (config: QuizConfig) => {
     setPhase({ kind: "generating", message: "Pulling passages…" });

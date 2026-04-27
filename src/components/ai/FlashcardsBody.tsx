@@ -41,6 +41,10 @@ type Props = {
   tocStructure: TocStructure;
   activeChapter: ChapterInfo | null;
   activeSection: SectionInfo | null;
+  /** Bumped when cards are inserted from elsewhere (e.g. selection
+   *  toolbar). Forces a count refresh so the home screen's "X due"
+   *  reflects the new total without a tab-switch. */
+  refreshKey?: number;
 };
 
 type Phase =
@@ -60,6 +64,7 @@ export function FlashcardsBody({
   tocStructure,
   activeChapter,
   activeSection,
+  refreshKey,
 }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "home", counts: null });
 
@@ -81,6 +86,16 @@ export function FlashcardsBody({
     if (!active || !needsInitialLoad) return;
     void loadCounts();
   }, [active, loadCounts, needsInitialLoad]);
+
+  // External insertions (selection-driven cards) bump refreshKey; reload
+  // counts so the home screen reflects the new total.
+  useEffect(() => {
+    if (refreshKey === undefined) return;
+    if (phase.kind !== "home") return;
+    void loadCounts();
+    // phase intentionally not in deps — we only react to refreshKey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey, loadCounts]);
 
   const startReview = useCallback(async () => {
     try {

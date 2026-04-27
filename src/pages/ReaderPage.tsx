@@ -23,7 +23,7 @@ import {
   listHighlights,
   type Highlight,
 } from "@/ai/highlights";
-import { insertCards } from "@/ai";
+import type { QuizQuestion } from "@/ai";
 import { useAISettings } from "@/ai/providers/settings";
 import type { ReadingFocus } from "@/ai/types";
 import {
@@ -35,10 +35,6 @@ import {
 import { resolveActiveToc } from "@/lib/toc";
 import { analyzeToc, locateInToc } from "@/lib/tocStructure";
 import { useLocalStorage } from "@/lib/useLocalStorage";
-
-function truncate(text: string, n: number): string {
-  return text.length > n ? `${text.slice(0, n - 1)}…` : text;
-}
 
 const THEME = {
   paper: "#ffffff",
@@ -91,6 +87,8 @@ export function ReaderPage() {
   const [selection, setSelection] = useState<SelectionEvent | null>(null);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [chatSeed, setChatSeed] = useState<ReadingFocus | null>(null);
+  const [quizSeed, setQuizSeed] = useState<QuizQuestion[] | null>(null);
+  const [cardsRefreshKey, setCardsRefreshKey] = useState(0);
   const aiEnabled = useAISettings((s) => s.enabled);
 
   const [fontSize, setFontSize] = useLocalStorage<number>(
@@ -220,22 +218,44 @@ export function ReaderPage() {
           }
           break;
         }
-        case "quiz": {
+        case "flashcard": {
+          setAiTab("flashcards");
+          setAiOpen(true);
           try {
-            await insertCards([
-              {
-                bookId,
-                front: `From p. ${sel.pageNumber ?? "?"}: What's the key idea of this passage?\n\n"${truncate(sel.text, 280)}"`,
-                back: sel.text,
-                explanation:
-                  "You saved this passage as a flashcard. On review, recall the key idea before revealing.",
-                sourceCfi: sel.cfi,
-              },
-            ]);
-            setAiTab("flashcards");
-            setAiOpen(true);
+            const { generateFlashcardsFromPassage } = await import("@/ai");
+            await generateFlashcardsFromPassage({
+              bookId,
+              bookTitle: book?.title ?? "",
+              bookAuthor: book?.author ?? "",
+              passage: sel.text,
+              pageNumber: sel.pageNumber ?? location.page ?? 1,
+              chapterTitle: activeLabel ?? null,
+              sourceCfi: sel.cfi,
+              count: 2,
+            });
+            setCardsRefreshKey((k) => k + 1);
           } catch (err) {
-            console.warn("Failed to create quiz card:", err);
+            console.warn("Failed to generate flashcards from selection:", err);
+          }
+          break;
+        }
+        case "quiz": {
+          setAiTab("quiz");
+          setAiOpen(true);
+          try {
+            const { generateQuizFromPassage } = await import("@/ai");
+            const questions = await generateQuizFromPassage({
+              bookTitle: book?.title ?? "",
+              bookAuthor: book?.author ?? "",
+              passage: sel.text,
+              pageNumber: sel.pageNumber ?? location.page ?? 1,
+              chapterTitle: activeLabel ?? null,
+              count: 3,
+              questionType: "mixed",
+            });
+            setQuizSeed(questions);
+          } catch (err) {
+            console.warn("Failed to generate quiz from selection:", err);
           }
           break;
         }
@@ -477,6 +497,9 @@ export function ReaderPage() {
         activeSection={activeSection}
         foliateBook={foliateBook}
         highlights={highlights}
+        seedQuiz={quizSeed}
+        onQuizSeedConsumed={() => setQuizSeed(null)}
+        cardsRefreshKey={cardsRefreshKey}
         seedFocus={chatSeed}
         onSeedConsumed={() => setChatSeed(null)}
         onJumpToHighlight={(cfi) => {

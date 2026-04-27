@@ -1,6 +1,11 @@
 import { Icon } from "@/components/Icons";
 
-export type SelectionAction = "highlight" | "ask" | "quiz" | "copy";
+export type SelectionAction =
+  | "highlight"
+  | "ask"
+  | "flashcard"
+  | "quiz"
+  | "copy";
 
 type Props = {
   x: number;
@@ -32,7 +37,13 @@ export function SelectionMenu({ x, y, onAction }: Props) {
       <Sep />
       <Button icon={<Icon.sparkle size={13} />} label="Ask" onClick={() => onAction("ask")} />
       <Sep />
-      <Button icon={<QuizIcon />} label="Flashcard" onClick={() => onAction("quiz")} />
+      <Button
+        icon={<FlashcardIcon />}
+        label="Flashcard"
+        onClick={() => onAction("flashcard")}
+      />
+      <Sep />
+      <Button icon={<QuizIcon />} label="Quiz" onClick={() => onAction("quiz")} />
       <Sep />
       <Button icon={<CopyIcon />} label="Copy" onClick={() => onAction("copy")} />
     </div>
@@ -126,6 +137,24 @@ function QuizIcon() {
       <circle cx={12} cy={12} r={9} />
       <path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 3.5" />
       <circle cx={12} cy={16} r={0.6} fill="currentColor" />
+    </svg>
+  );
+}
+
+function FlashcardIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x={3} y={5} width={18} height={14} rx={2} />
+      <path d="M7 10h10M7 14h6" />
     </svg>
   );
 }
